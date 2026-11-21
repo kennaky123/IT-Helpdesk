@@ -1,14 +1,14 @@
-import mongoose from "mongoose";
+import { Schema, createModel } from "../config/database.js";
 import {
   USB_DEVICE_STATUSES,
   USB_DEVICE_TYPES,
   USB_EVENT_TYPES,
 } from "../constants/usb.js";
 
-const usbEventLogSchema = new mongoose.Schema(
+const usbEventLogSchema = new Schema(
   {
     usbDevice: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "UsbDevice",
       required: true,
       index: true,
@@ -97,5 +97,6 @@ const usbEventLogSchema = new mongoose.Schema(
 usbEventLogSchema.index({ createdAt: -1 });
 usbEventLogSchema.index({ hostname: 1, createdAt: -1 });
 
-export const UsbEventLog = mongoose.model("UsbEventLog", usbEventLogSchema, "usb_event_logs");
+export const UsbEventLog = createModel("UsbEventLog", usbEventLogSchema, "usb_event_logs");
 export default UsbEventLog;
+

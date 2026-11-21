@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import { Schema, createModel } from "../config/database.js";
 
 export const RATING_SCORES = Object.freeze([1, 2, 3, 4, 5]);
 
@@ -7,23 +7,23 @@ function removeVersionKey(_document, returnedObject) {
   return returnedObject;
 }
 
-const ratingSchema = new mongoose.Schema(
+const ratingSchema = new Schema(
   {
     ticket: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "Ticket",
       required: [true, "Ticket là bắt buộc."],
       immutable: true,
       unique: true,
     },
     ratedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: [true, "Người đánh giá là bắt buộc."],
       immutable: true,
     },
     technician: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: [true, "Technician được đánh giá là bắt buộc."],
       immutable: true,
@@ -57,6 +57,6 @@ ratingSchema.index({ technician: 1, createdAt: -1 });
 ratingSchema.index({ ratedBy: 1, createdAt: -1 });
 ratingSchema.index({ score: 1, createdAt: -1 });
 
-const Rating = mongoose.model("Rating", ratingSchema);
+const Rating = createModel("Rating", ratingSchema);
 
 export default Rating;

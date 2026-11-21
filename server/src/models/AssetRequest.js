@@ -1,11 +1,11 @@
-import mongoose from "mongoose";
+import { Schema, createModel } from "../config/database.js";
 import { ASSET_REQUEST_STATUSES, ASSET_TYPES } from "../constants/asset.js";
 
-const assetRequestSchema = new mongoose.Schema(
+const assetRequestSchema = new Schema(
   {
     requestCode: { type: String, required: true, unique: true, trim: true },
     employee: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
       index: true,
@@ -13,17 +13,17 @@ const assetRequestSchema = new mongoose.Schema(
     assetType: { type: String, enum: ASSET_TYPES, default: "laptop" },
     note: { type: String, default: null, trim: true, maxlength: 1000 },
     requestedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
     technician: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
       index: true,
     },
-    asset: { type: mongoose.Schema.Types.ObjectId, ref: "Asset", default: null },
+    asset: { type: Schema.Types.ObjectId, ref: "Asset", default: null },
     status: {
       type: String,
       enum: ASSET_REQUEST_STATUSES,
@@ -38,7 +38,7 @@ const assetRequestSchema = new mongoose.Schema(
   { timestamps: true, versionKey: false },
 );
 
-const AssetRequest = mongoose.model("AssetRequest", assetRequestSchema);
+const AssetRequest = createModel("AssetRequest", assetRequestSchema);
 
 export default AssetRequest;
 

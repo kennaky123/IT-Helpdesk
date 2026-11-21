@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import { Schema, createModel } from "../config/database.js";
 import {
   ASSET_HISTORY_ACTIONS,
   ASSET_STATUSES,
@@ -6,12 +6,12 @@ import {
   REMOTE_TOOLS,
 } from "../constants/asset.js";
 
-const assetHistorySchema = new mongoose.Schema(
+const assetHistorySchema = new Schema(
   {
     action: { type: String, enum: ASSET_HISTORY_ACTIONS, required: true },
-    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    user: { type: Schema.Types.ObjectId, ref: "User", default: null },
     performedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
@@ -21,7 +21,7 @@ const assetHistorySchema = new mongoose.Schema(
   { _id: true },
 );
 
-const assetSchema = new mongoose.Schema(
+const assetSchema = new Schema(
   {
     assetTag: {
       type: String,
@@ -48,7 +48,7 @@ const assetSchema = new mongoose.Schema(
       index: true,
     },
     assignedTo: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
       index: true,
@@ -63,7 +63,7 @@ const assetSchema = new mongoose.Schema(
   { timestamps: true, versionKey: false },
 );
 
-const Asset = mongoose.model("Asset", assetSchema);
+const Asset = createModel("Asset", assetSchema);
 
 export default Asset;
 

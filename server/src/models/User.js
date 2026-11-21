@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import mongoose from "mongoose";
+import { Schema, createModel } from "../config/database.js";
 import { env } from "../config/env.js";
 
 export const USER_ROLES = Object.freeze(["user", "technician", "admin"]);
@@ -16,7 +16,7 @@ function removePrivateFields(_document, returnedObject) {
   return returnedObject;
 }
 
-const userSchema = new mongoose.Schema(
+const userSchema = new Schema(
   {
     fullName: {
       type: String,
@@ -139,6 +139,6 @@ userSchema.methods.changedPasswordAfter = function changedPasswordAfter(
   return changedAtInSeconds > jwtIssuedAt;
 };
 
-const User = mongoose.model("User", userSchema);
+const User = createModel("User", userSchema);
 
 export default User;

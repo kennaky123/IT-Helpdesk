@@ -43,3 +43,4 @@ export async function sendAgentUsbEvent(payload) {
 export function getAgentDownloadUrl() {
   return `${clientEnv.apiUrl}/usb/download-agent`;
 }
+

@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import { isValidId } from "../config/database.js";
 import {
   TICKET_PRIORITIES,
   TICKET_STATUSES,
@@ -75,7 +75,7 @@ function parsePositiveInteger(value, fallback) {
 export function validateTicketId(request, _response, next) {
   const { ticketId } = request.params;
 
-  if (!mongoose.isObjectIdOrHexString(ticketId)) {
+  if (!isValidId(ticketId)) {
     return next(new ApiError(400, "ID ticket không hợp lệ."));
   }
 
@@ -85,7 +85,7 @@ export function validateTicketId(request, _response, next) {
 export function validateAttachmentId(request, _response, next) {
   const { attachmentId } = request.params;
 
-  if (!mongoose.isObjectIdOrHexString(attachmentId)) {
+  if (!isValidId(attachmentId)) {
     return next(new ApiError(400, "ID tệp đính kèm không hợp lệ."));
   }
 
@@ -109,7 +109,7 @@ export function validateCreateTicket(request, _response, next) {
       errors.push("Mô tả phải có từ 10 đến 5000 ký tự.");
     }
 
-    if (!mongoose.isObjectIdOrHexString(body.category)) {
+    if (!isValidId(body.category)) {
       errors.push("Danh mục không hợp lệ.");
     }
 
@@ -122,7 +122,7 @@ export function validateCreateTicket(request, _response, next) {
         ? body.technicianId.trim()
         : null;
 
-    if (technicianId && !mongoose.isObjectIdOrHexString(technicianId)) {
+    if (technicianId && !isValidId(technicianId)) {
       errors.push("Kỹ thuật viên được phân công không hợp lệ.");
     }
 
@@ -191,11 +191,11 @@ export function validateTicketQuery(request, _response, next) {
       errors.push("Bộ lọc mức độ ưu tiên không hợp lệ.");
     }
 
-    if (category && !mongoose.isObjectIdOrHexString(category)) {
+    if (category && !isValidId(category)) {
       errors.push("Bộ lọc danh mục không hợp lệ.");
     }
 
-    if (technician && !mongoose.isObjectIdOrHexString(technician)) {
+    if (technician && !isValidId(technician)) {
       errors.push("Bộ lọc Technician không hợp lệ.");
     }
 
@@ -239,7 +239,7 @@ export function validateAssignment(request, _response, next) {
       errors,
     );
 
-    if (!mongoose.isObjectIdOrHexString(body.technicianId)) {
+    if (!isValidId(body.technicianId)) {
       errors.push("ID Technician không hợp lệ.");
     }
 

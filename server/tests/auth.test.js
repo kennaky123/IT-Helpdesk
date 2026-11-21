@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import mongoose from "mongoose";
 
 process.env.NODE_ENV = "test";
 process.env.JWT_ACCESS_SECRET = "test-access-secret-with-at-least-32-characters";
@@ -10,6 +9,7 @@ process.env.JWT_REFRESH_SECRET =
   "test-refresh-secret-with-at-least-32-characters";
 
 const [
+  { generateId },
   { default: User },
   { authorizeRoles },
   { authenticate },
@@ -20,6 +20,7 @@ const [
     generateAccessToken,
   },
 ] = await Promise.all([
+  import("../src/config/database.js"),
   import("../src/models/User.js"),
   import("../src/middleware/authorizeRoles.js"),
   import("../src/middleware/authenticate.js"),
@@ -63,7 +64,7 @@ test("comparePassword kiểm tra bcrypt hash chính xác", async () => {
 });
 
 test("generateAccessToken tạo JWT đúng subject và role", () => {
-  const userId = new mongoose.Types.ObjectId();
+  const userId = generateId();
   const token = generateAccessToken({
     _id: userId,
     role: "technician",

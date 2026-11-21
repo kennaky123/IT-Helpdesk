@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import mongoose from "mongoose";
+import { generateId } from "../src/config/database.js";
 import Rating from "../src/models/Rating.js";
 
 function createValidRating(overrides = {}) {
   return new Rating({
-    ticket: new mongoose.Types.ObjectId(),
-    ratedBy: new mongoose.Types.ObjectId(),
-    technician: new mongoose.Types.ObjectId(),
+    ticket: generateId(),
+    ratedBy: generateId(),
+    technician: generateId(),
     score: 5,
     feedback: "Technician hỗ trợ nhanh và xử lý đúng yêu cầu.",
     ...overrides,

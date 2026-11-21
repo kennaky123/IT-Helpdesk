@@ -285,3 +285,4 @@ export async function deleteUsbDevice(usbId) {
   await UsbEventLog.deleteMany({ usbDevice: device._id });
   return device.toObject();
 }
+

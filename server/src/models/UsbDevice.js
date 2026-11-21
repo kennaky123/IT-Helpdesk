@@ -1,10 +1,10 @@
-import mongoose from "mongoose";
+import { Schema, createModel } from "../config/database.js";
 import {
   USB_DEVICE_STATUSES,
   USB_DEVICE_TYPES,
 } from "../constants/usb.js";
 
-const lastHostSchema = new mongoose.Schema(
+const lastHostSchema = new Schema(
   {
     hostname: {
       type: String,
@@ -33,7 +33,7 @@ const lastHostSchema = new mongoose.Schema(
   { _id: false },
 );
 
-const usbDeviceSchema = new mongoose.Schema(
+const usbDeviceSchema = new Schema(
   {
     deviceId: {
       type: String,
@@ -91,12 +91,12 @@ const usbDeviceSchema = new mongoose.Schema(
       default: () => ({}),
     },
     assignedUser: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
     reviewedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
@@ -120,5 +120,6 @@ const usbDeviceSchema = new mongoose.Schema(
 usbDeviceSchema.index({ status: 1, isCurrentlyConnected: -1, updatedAt: -1 });
 usbDeviceSchema.index({ "lastHost.hostname": 1 });
 
-export const UsbDevice = mongoose.model("UsbDevice", usbDeviceSchema, "usb_devices");
+export const UsbDevice = createModel("UsbDevice", usbDeviceSchema, "usb_devices");
 export default UsbDevice;
+

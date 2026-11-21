@@ -15,11 +15,18 @@ function parsePositiveInteger(value, fallback) {
     : fallback;
 }
 
+const resolvedDatabaseUrl =
+  process.env.DATABASE_URL?.trim() ||
+  process.env.POSTGRES_URI?.trim() ||
+  process.env.MONGODB_URI?.trim() ||
+  "";
+
 export const env = Object.freeze({
   nodeEnv: process.env.NODE_ENV ?? "development",
   host: process.env.HOST?.trim() || "0.0.0.0",
   port: parsePositiveInteger(process.env.PORT, 5000),
-  mongoUri: process.env.MONGODB_URI?.trim() ?? "",
+  databaseUrl: resolvedDatabaseUrl,
+  mongoUri: resolvedDatabaseUrl,
   clientUrl: process.env.CLIENT_URL?.trim() || "http://127.0.0.1:5173",
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET?.trim() ?? "",
   jwtAccessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN?.trim() || "365d",
@@ -42,7 +49,7 @@ export function validateEnv() {
   }
 
   const requiredVariables = {
-    MONGODB_URI: env.mongoUri,
+    DATABASE_URL: env.databaseUrl,
     JWT_ACCESS_SECRET: env.jwtAccessSecret,
     JWT_REFRESH_SECRET: env.jwtRefreshSecret,
   };

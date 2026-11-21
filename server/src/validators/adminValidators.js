@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import { isValidId } from "../config/database.js";
 import ApiError from "../utils/ApiError.js";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -23,7 +23,7 @@ function reject(errors, next) {
 
 export function validateObjectId(parameterName) {
   return (request, _response, next) => {
-    if (!mongoose.isValidObjectId(request.params[parameterName])) {
+    if (!isValidId(request.params[parameterName])) {
       return next(new ApiError(400, "Mã định danh không hợp lệ."));
     }
     return next();

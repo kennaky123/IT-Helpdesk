@@ -1,14 +1,14 @@
-import mongoose from "mongoose";
+import { Schema, createModel } from "../config/database.js";
 import {
   BILLING_CYCLES,
   LICENSE_TYPES,
   SOFTWARE_CATEGORIES,
 } from "../constants/software.js";
 
-const assignedUserSchema = new mongoose.Schema(
+const assignedUserSchema = new Schema(
   {
     user: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
@@ -27,7 +27,7 @@ const assignedUserSchema = new mongoose.Schema(
   { _id: true },
 );
 
-const softwareLicenseSchema = new mongoose.Schema(
+const softwareLicenseSchema = new Schema(
   {
     name: {
       type: String,
@@ -107,12 +107,12 @@ const softwareLicenseSchema = new mongoose.Schema(
       maxlength: 1000,
     },
     createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
     updatedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
@@ -142,7 +142,7 @@ softwareLicenseSchema.methods.calculateStatus = function (now = new Date()) {
   return "active";
 };
 
-const SoftwareLicense = mongoose.model("SoftwareLicense", softwareLicenseSchema);
+const SoftwareLicense = createModel("SoftwareLicense", softwareLicenseSchema);
 
 export default SoftwareLicense;
 

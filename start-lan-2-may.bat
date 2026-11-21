@@ -26,3 +26,4 @@ echo [OK] Da khoi dong xong!
 echo  - Tren May 2: Hay mo trinh duyet truy cap http://^<IP_LAN_MAY_1^>:5173
 echo  - Chay file usb-agent\ITHelpdeskUSBAgent.exe tren May 2 (hoac May 1) de giam sat USB!
 pause
+

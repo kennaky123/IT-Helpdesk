@@ -201,3 +201,4 @@ function UsbPolicyModal({ device, onClose, onSaved }) {
 }
 
 export default UsbPolicyModal;
+

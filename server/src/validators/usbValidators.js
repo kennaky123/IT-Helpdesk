@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import { isValidId } from "../config/database.js";
 import {
   USB_DEVICE_STATUSES,
   USB_DEVICE_TYPES,
@@ -27,7 +27,7 @@ function isInvalid(value) {
 
 export function validateUsbId(request, _response, next) {
   const id = request.params.usbId;
-  return mongoose.isObjectIdOrHexString(id)
+  return isValidId(id)
     ? next()
     : next(new ApiError(400, "Mã định danh thiết bị USB không hợp lệ."));
 }
@@ -139,7 +139,7 @@ export function validateUpdateUsbPolicy(request, _response, next) {
   if (body.assignedUserId !== undefined) {
     if (body.assignedUserId === null || body.assignedUserId === "") {
       result.assignedUser = null;
-    } else if (!mongoose.isObjectIdOrHexString(body.assignedUserId)) {
+    } else if (!isValidId(body.assignedUserId)) {
       errors.push("ID nhân viên gán thiết bị không hợp lệ.");
     } else {
       result.assignedUser = body.assignedUserId;
@@ -158,3 +158,4 @@ export function validateUpdateUsbPolicy(request, _response, next) {
   request.usbPolicyPayload = result;
   return reject(errors, next);
 }
+

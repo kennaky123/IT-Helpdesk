@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import mongoose from "mongoose";
+import { generateId } from "../src/config/database.js";
 import {
   canTechnicianTransition,
 } from "../src/constants/ticket.js";
@@ -27,8 +27,8 @@ function createValidTicket(overrides = {}) {
     ticketCode: "HD-2026-000001",
     title: "Không thể truy cập mạng nội bộ",
     description: "Máy tính không thể kết nối vào hệ thống mạng nội bộ.",
-    category: new mongoose.Types.ObjectId(),
-    createdBy: new mongoose.Types.ObjectId(),
+    category: generateId(),
+    createdBy: generateId(),
     ...overrides,
   });
 }
@@ -50,7 +50,7 @@ test("Ticket mặc định có priority medium và status pending", async () => 
 test("Ticket resolved bắt buộc có nội dung giải quyết", async () => {
   const ticket = createValidTicket({
     status: "resolved",
-    assignedTo: new mongoose.Types.ObjectId(),
+    assignedTo: generateId(),
     resolvedAt: new Date(),
   });
 
@@ -74,12 +74,12 @@ test("validateCreateTicket từ chối dữ liệu không hợp lệ", async () 
 });
 
 test("validateCreateTicket chấp nhận technicianId hợp lệ hoặc để trống", async () => {
-  const technicianId = new mongoose.Types.ObjectId().toString();
+  const technicianId = generateId();
   const requestWithTech = {
     body: {
       title: "Sự cố mạng máy trạm phòng kế toán",
       description: "Không thể kết nối vào máy in mạng và chia sẻ tệp nội bộ.",
-      category: new mongoose.Types.ObjectId().toString(),
+      category: generateId(),
       priority: "high",
       technicianId,
     },
@@ -96,7 +96,7 @@ test("validateCreateTicket chấp nhận technicianId hợp lệ hoặc để tr
     body: {
       title: "Sự cố phần mềm văn phòng Word bị treo",
       description: "Ứng dụng Word tự động đóng khi mở tệp văn bản mẫu của phòng.",
-      category: new mongoose.Types.ObjectId().toString(),
+      category: generateId(),
       priority: "low",
       technicianId: "",
     },
@@ -115,7 +115,7 @@ test("validateCreateTicket từ chối technicianId không hợp lệ", async ()
     body: {
       title: "Sự cố phần mềm máy chủ sao lưu dữ liệu",
       description: "Tiến trình sao lưu hàng ngày báo lỗi phân vùng lưu trữ.",
-      category: new mongoose.Types.ObjectId().toString(),
+      category: generateId(),
       priority: "urgent",
       technicianId: "invalid-tech-id",
     },

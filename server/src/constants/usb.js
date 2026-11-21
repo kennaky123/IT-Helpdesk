@@ -16,3 +16,4 @@ export const USB_DEVICE_TYPES = Object.freeze([
   "audio_video",
   "other_usb",
 ]);
+

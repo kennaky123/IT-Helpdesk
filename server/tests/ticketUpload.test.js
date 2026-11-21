@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { access, unlink } from "node:fs/promises";
 import test from "node:test";
 import express from "express";
-import mongoose from "mongoose";
 import request from "supertest";
+import { generateId } from "../src/config/database.js";
 import {
   cleanupTicketAttachmentUpload,
   uploadTicketAttachments,
@@ -51,7 +51,7 @@ function validTicketFields(overrides = {}) {
   return {
     title: "Không thể kết nối máy in",
     description: "Máy tính không thể kết nối máy in tại phòng làm việc.",
-    category: new mongoose.Types.ObjectId().toString(),
+    category: generateId(),
     priority: "medium",
     ...overrides,
   };

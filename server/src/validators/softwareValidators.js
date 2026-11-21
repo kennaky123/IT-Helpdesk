@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import { isValidId } from "../config/database.js";
 import {
   BILLING_CYCLES,
   LICENSE_STATUSES,
@@ -28,7 +28,7 @@ function isInvalid(value) {
 
 export function validateSoftwareId(request, _response, next) {
   const id = request.params.licenseId;
-  return mongoose.isObjectIdOrHexString(id)
+  return isValidId(id)
     ? next()
     : next(new ApiError(400, "Mã định danh bản quyền không hợp lệ."));
 }
@@ -163,7 +163,7 @@ export function validateAllocateLicense(request, _response, next) {
   const note = text(request.body?.note, 300);
   const errors = [];
 
-  if (!mongoose.isObjectIdOrHexString(userId)) {
+  if (!isValidId(userId)) {
     errors.push("Vui lòng chọn nhân viên để cấp bản quyền.");
   }
   if (isInvalid(note)) {
@@ -176,7 +176,7 @@ export function validateAllocateLicense(request, _response, next) {
 
 export function validateRevokeLicense(request, _response, next) {
   const { userId } = request.body ?? {};
-  if (!mongoose.isObjectIdOrHexString(userId)) {
+  if (!isValidId(userId)) {
     return next(new ApiError(400, "Vui lòng chọn nhân viên cần thu hồi bản quyền."));
   }
   request.body = { userId };

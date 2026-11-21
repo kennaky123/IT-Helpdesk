@@ -151,3 +151,4 @@ export async function handleDeleteUsbDevice(request, response, next) {
     return next(error);
   }
 }
+

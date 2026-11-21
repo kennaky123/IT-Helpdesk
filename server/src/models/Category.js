@@ -1,11 +1,11 @@
-import mongoose from "mongoose";
+import { Schema, createModel } from "../config/database.js";
 
 function removeVersionKey(_document, returnedObject) {
   delete returnedObject.__v;
   return returnedObject;
 }
 
-const categorySchema = new mongoose.Schema(
+const categorySchema = new Schema(
   {
     name: {
       type: String,
@@ -37,12 +37,12 @@ const categorySchema = new mongoose.Schema(
       required: true,
     },
     createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
     updatedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
@@ -56,6 +56,6 @@ const categorySchema = new mongoose.Schema(
 
 categorySchema.index({ isActive: 1, name: 1 });
 
-const Category = mongoose.model("Category", categorySchema);
+const Category = createModel("Category", categorySchema);
 
 export default Category;

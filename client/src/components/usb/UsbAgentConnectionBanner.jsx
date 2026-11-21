@@ -132,3 +132,4 @@ function UsbAgentConnectionBanner({ networkInfo, onSimulateEvent, isSimulating }
 }
 
 export default UsbAgentConnectionBanner;
+

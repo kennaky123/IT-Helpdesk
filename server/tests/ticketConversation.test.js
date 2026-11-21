@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import mongoose from "mongoose";
+import { generateId } from "../src/config/database.js";
 import {
   authorizeInternalNote,
   buildTicketAccessFilter,
@@ -24,14 +24,14 @@ function runMiddleware(middleware, requestObject) {
   });
 }
 
-function createUser(role, id = new mongoose.Types.ObjectId()) {
+function createUser(role, id = generateId()) {
   return { _id: id, role };
 }
 
 test("Comment mặc định là comment công khai", async () => {
   const comment = new Comment({
-    ticket: new mongoose.Types.ObjectId(),
-    sender: new mongoose.Types.ObjectId(),
+    ticket: generateId(),
+    sender: generateId(),
     content: "Tôi đã thử khởi động lại máy nhưng vẫn còn lỗi.",
   });
 
@@ -45,8 +45,8 @@ test("validateCreateComment chuẩn hóa nội dung và loại field không cho 
   const requestObject = {
     body: {
       content: "  Vui lòng kiểm tra lại kết nối.  ",
-      sender: new mongoose.Types.ObjectId().toString(),
-      ticket: new mongoose.Types.ObjectId().toString(),
+      sender: generateId(),
+      ticket: generateId(),
     },
   };
 
@@ -109,8 +109,8 @@ test("validateCommentListQuery hỗ trợ lấy comment mới nhất trước", 
 });
 
 test("chỉ creator, current assignee hoặc admin là người liên quan", () => {
-  const creatorId = new mongoose.Types.ObjectId();
-  const technicianId = new mongoose.Types.ObjectId();
+  const creatorId = generateId();
+  const technicianId = generateId();
   const ticket = {
     createdBy: creatorId,
     assignedTo: technicianId,
@@ -126,7 +126,7 @@ test("chỉ creator, current assignee hoặc admin là người liên quan", () 
 });
 
 test("filter truy cập ticket trả cùng scope creator hoặc assignee", () => {
-  const ticketId = new mongoose.Types.ObjectId();
+  const ticketId = generateId();
   const user = createUser("user");
   const admin = createUser("admin");
 
@@ -141,7 +141,7 @@ test("filter truy cập ticket trả cùng scope creator hoặc assignee", () =>
 
 test("Technician là creator nhưng không được giao vẫn không thấy internal note", () => {
   const creatorTechnician = createUser("technician");
-  const assignedTechnicianId = new mongoose.Types.ObjectId();
+  const assignedTechnicianId = generateId();
   const ticket = {
     createdBy: creatorTechnician._id,
     assignedTo: assignedTechnicianId,
@@ -171,7 +171,7 @@ test("current assignee và admin được xem internal note", () => {
 test("comment và ghi chú bị khóa khi ticket đã đóng hoặc hủy", () => {
   const user = createUser("user");
   const technician = createUser("technician");
-  const ticketId = new mongoose.Types.ObjectId();
+  const ticketId = generateId();
 
   assert.deepEqual(buildCommentWriteFilter(ticketId, user, false), {
     _id: ticketId,

@@ -135,3 +135,4 @@ function UsbEventsTable({ events = [] }) {
 }
 
 export default UsbEventsTable;
+

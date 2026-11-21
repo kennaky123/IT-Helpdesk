@@ -1,10 +1,10 @@
-import mongoose from "mongoose";
+import { Schema, createModel } from "../config/database.js";
 import {
   TICKET_PRIORITIES,
   TICKET_STATUSES,
 } from "../constants/ticket.js";
 
-const attachmentSchema = new mongoose.Schema(
+const attachmentSchema = new Schema(
   {
     originalName: {
       type: String,
@@ -27,7 +27,7 @@ const attachmentSchema = new mongoose.Schema(
       min: 1,
     },
     uploadedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
@@ -40,7 +40,7 @@ const attachmentSchema = new mongoose.Schema(
   { _id: true },
 );
 
-const statusHistorySchema = new mongoose.Schema(
+const statusHistorySchema = new Schema(
   {
     fromStatus: {
       type: String,
@@ -53,7 +53,7 @@ const statusHistorySchema = new mongoose.Schema(
       required: true,
     },
     changedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
@@ -73,20 +73,20 @@ const statusHistorySchema = new mongoose.Schema(
   { _id: true },
 );
 
-const assignmentHistorySchema = new mongoose.Schema(
+const assignmentHistorySchema = new Schema(
   {
     fromTechnician: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
     toTechnician: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
     assignedBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
@@ -120,7 +120,7 @@ const statusesRequiringTechnician = [
 
 const statusesRequiringResolution = ["resolved", "closed"];
 
-const ticketSchema = new mongoose.Schema(
+const ticketSchema = new Schema(
   {
     ticketCode: {
       type: String,
@@ -146,7 +146,7 @@ const ticketSchema = new mongoose.Schema(
       maxlength: [5000, "Mô tả không được vượt quá 5000 ký tự."],
     },
     category: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "Category",
       required: [true, "Danh mục là bắt buộc."],
     },
@@ -169,13 +169,13 @@ const ticketSchema = new mongoose.Schema(
       required: true,
     },
     createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: [true, "Người tạo ticket là bắt buộc."],
       immutable: true,
     },
     assignedTo: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
       required: [
@@ -239,7 +239,7 @@ const ticketSchema = new mongoose.Schema(
       default: null,
     },
     cancelledBy: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
     },
@@ -278,6 +278,6 @@ ticketSchema.index({ category: 1, status: 1, createdAt: -1 });
 ticketSchema.index({ status: 1, resolvedAt: -1 });
 ticketSchema.index({ createdAt: -1 });
 
-const Ticket = mongoose.model("Ticket", ticketSchema);
+const Ticket = createModel("Ticket", ticketSchema);
 
 export default Ticket;

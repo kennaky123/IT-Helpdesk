@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import { isValidId } from "../config/database.js";
 import {
   ASSET_REQUEST_STATUSES,
   ASSET_STATUSES,
@@ -28,7 +28,7 @@ function isInvalid(value) {
 
 export function validateAssetId(request, _response, next) {
   const id = request.params.assetId ?? request.params.requestId;
-  return mongoose.isObjectIdOrHexString(id)
+  return isValidId(id)
     ? next()
     : next(new ApiError(400, "Mã định danh không hợp lệ."));
 }
@@ -39,7 +39,7 @@ export function validateAssetQuery(request, _response, next) {
 
   if (status && !ASSET_STATUSES.includes(status)) errors.push("Trạng thái lọc không hợp lệ.");
   if (type && !ASSET_TYPES.includes(type)) errors.push("Loại thiết bị lọc không hợp lệ.");
-  if (assignedTo && !mongoose.isObjectIdOrHexString(assignedTo)) {
+  if (assignedTo && !isValidId(assignedTo)) {
     errors.push("Người dùng lọc không hợp lệ.");
   }
   if (search && (typeof search !== "string" || search.length > 100)) {
@@ -125,7 +125,7 @@ export function validateAssignAsset(request, _response, next) {
   const note = text(request.body?.note, 500);
   const errors = [];
 
-  if (!mongoose.isObjectIdOrHexString(userId)) errors.push("Vui lòng chọn nhân viên nhận thiết bị.");
+  if (!isValidId(userId)) errors.push("Vui lòng chọn nhân viên nhận thiết bị.");
   if (isInvalid(note)) errors.push("Ghi chú tối đa 500 ký tự.");
 
   request.body = { userId, note: isInvalid(note) ? null : note ?? null };
@@ -161,8 +161,8 @@ export function validateCreateAssetRequest(request, _response, next) {
   const assetType = body.assetType ?? "laptop";
   const errors = [];
 
-  if (!mongoose.isObjectIdOrHexString(body.employeeId)) errors.push("Vui lòng chọn nhân viên cần cấp thiết bị.");
-  if (body.technicianId && !mongoose.isObjectIdOrHexString(body.technicianId)) {
+  if (!isValidId(body.employeeId)) errors.push("Vui lòng chọn nhân viên cần cấp thiết bị.");
+  if (body.technicianId && !isValidId(body.technicianId)) {
     errors.push("Kỹ thuật viên không hợp lệ.");
   }
   if (!ASSET_TYPES.includes(assetType)) errors.push("Loại thiết bị không hợp lệ.");
@@ -182,7 +182,7 @@ export function validateCompleteAssetRequest(request, _response, next) {
   const note = text(request.body?.note, 500);
   const errors = [];
 
-  if (!mongoose.isObjectIdOrHexString(assetId)) errors.push("Vui lòng chọn thiết bị trong kho để bàn giao.");
+  if (!isValidId(assetId)) errors.push("Vui lòng chọn thiết bị trong kho để bàn giao.");
   if (isInvalid(note)) errors.push("Ghi chú tối đa 500 ký tự.");
 
   request.body = { assetId, note: isInvalid(note) ? null : note ?? null };

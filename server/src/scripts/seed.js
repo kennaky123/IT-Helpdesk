@@ -1,6 +1,6 @@
-import mongoose from "mongoose";
 import {
   connectDatabase,
+  dbConnection,
   disconnectDatabase,
 } from "../config/database.js";
 import { env } from "../config/env.js";
@@ -36,6 +36,9 @@ const PROTECTED_DATABASE_NAMES = new Set([
   "config",
   "local",
   "test",
+  "postgres",
+  "template0",
+  "template1",
 ]);
 
 const CATEGORY_DEFINITIONS = Object.freeze([
@@ -680,7 +683,7 @@ async function initializeIndexes() {
 }
 
 function assertSafeDatabaseTarget() {
-  const databaseName = mongoose.connection.name;
+  const databaseName = dbConnection.name;
   const force = process.argv.includes("--force");
 
   if (!databaseName) {
@@ -695,7 +698,7 @@ function assertSafeDatabaseTarget() {
 
   if (PROTECTED_DATABASE_NAMES.has(databaseName.toLowerCase()) && !force) {
     throw new Error(
-      `Từ chối xóa database '${databaseName}'. Hãy cấu hình MONGODB_URI với tên database riêng, ví dụ /it_helpdesk.`,
+      `Từ chối xóa database '${databaseName}'. Hãy cấu hình DATABASE_URL với tên database riêng, ví dụ /it_helpdesk.`,
     );
   }
 
@@ -1291,8 +1294,8 @@ async function seedDatabase() {
   const password = getSeedPassword();
   let databaseWasCleared = false;
 
-  if (!env.mongoUri) {
-    throw new Error("Thiếu biến môi trường MONGODB_URI.");
+  if (!env.databaseUrl) {
+    throw new Error("Thiếu biến môi trường DATABASE_URL.");
   }
 
   await connectDatabase();

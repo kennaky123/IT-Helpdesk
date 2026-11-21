@@ -1,6 +1,6 @@
-import mongoose from "mongoose";
+import { Schema, createModel } from "../config/database.js";
 
-const ticketCounterSchema = new mongoose.Schema(
+const ticketCounterSchema = new Schema(
   {
     _id: {
       type: String,
@@ -23,6 +23,6 @@ const ticketCounterSchema = new mongoose.Schema(
   },
 );
 
-const TicketCounter = mongoose.model("TicketCounter", ticketCounterSchema);
+const TicketCounter = createModel("TicketCounter", ticketCounterSchema);
 
 export default TicketCounter;

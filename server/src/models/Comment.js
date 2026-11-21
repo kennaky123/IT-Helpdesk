@@ -1,6 +1,6 @@
-import mongoose from "mongoose";
+import { Schema, createModel } from "../config/database.js";
 
-const commentAttachmentSchema = new mongoose.Schema(
+const commentAttachmentSchema = new Schema(
   {
     originalName: {
       type: String,
@@ -36,16 +36,16 @@ function removeVersionKey(_document, returnedObject) {
   return returnedObject;
 }
 
-const commentSchema = new mongoose.Schema(
+const commentSchema = new Schema(
   {
     ticket: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "Ticket",
       required: [true, "Ticket là bắt buộc."],
       immutable: true,
     },
     sender: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "User",
       required: [true, "Người gửi là bắt buộc."],
       immutable: true,
@@ -84,6 +84,6 @@ const commentSchema = new mongoose.Schema(
 commentSchema.index({ ticket: 1, createdAt: 1, _id: 1 });
 commentSchema.index({ ticket: 1, isInternal: 1, createdAt: 1, _id: 1 });
 
-const Comment = mongoose.model("Comment", commentSchema);
+const Comment = createModel("Comment", commentSchema);
 
 export default Comment;
