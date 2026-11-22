@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  handleAgentGetPolicies,
   handleAgentPing,
   handleAgentUsbEvent,
   handleDeleteUsbDevice,
@@ -21,6 +22,7 @@ const router = Router();
 
 // Public / Agent endpoints cho ITHelpdeskUSBAgent.exe gửi dữ liệu từ máy nhân viên
 router.get("/agent-ping", handleAgentPing);
+router.get("/agent-policies", handleAgentGetPolicies);
 router.post("/agent-event", validateAgentUsbEvent, handleAgentUsbEvent);
 router.get("/download-agent", handleDownloadAgent);
 

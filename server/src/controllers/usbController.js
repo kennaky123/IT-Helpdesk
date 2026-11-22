@@ -5,6 +5,7 @@ import { publishDataChanged } from "../services/realtimeService.js";
 import {
   deleteUsbDevice,
   getServerNetworkInfo,
+  listAgentUsbPolicies,
   listUsbDashboardData,
   recordAgentUsbEvent,
   updateUsbDevicePolicy,
@@ -69,6 +70,19 @@ export async function handleAgentUsbEvent(request, response, next) {
         policyStatus: result.device.status,
         policyMessage,
       },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function handleAgentGetPolicies(_request, response, next) {
+  try {
+    const policies = await listAgentUsbPolicies();
+    return response.status(200).json({
+      success: true,
+      message: "Lấy danh sách chính sách bảo mật USB thành công.",
+      data: { policies },
     });
   } catch (error) {
     return next(error);

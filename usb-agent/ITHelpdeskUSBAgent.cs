@@ -1,12 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Management;
+using System.Media;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Security.Principal;
 using System.Text;
 using System.Threading;
+using System.Windows.Forms;
 using System.Web.Script.Serialization;
 
 namespace ITHelpdeskUSBAgent
@@ -27,427 +33,622 @@ namespace ITHelpdeskUSBAgent
         public string serverUrl { get; set; }
     }
 
-    class Program
+    static class Program
     {
-        private static string ServerBaseUrl = "http://192.168.1.16:5000";
-        private static readonly string ConfigFilePath = Path.Combine(
+        private static Mutex SingleInstanceMutex;
+
+        [STAThread]
+        static void Main(string[] args)
+        {
+            bool createdNew;
+            SingleInstanceMutex = new Mutex(true, "Local\\ITHelpdeskUSBAgent_Tray_v2", out createdNew);
+            if (!createdNew)
+            {
+                return;
+            }
+
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            try
+            {
+                Application.Run(new TrayAgentContext(args));
+            }
+            finally
+            {
+                try { SingleInstanceMutex.ReleaseMutex(); } catch { }
+                SingleInstanceMutex.Dispose();
+            }
+        }
+    }
+
+    public class TrayAgentContext : ApplicationContext
+    {
+        private const string TaskName = "ITHelpdeskUSBAgent";
+        private static readonly string InstallDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "ITHelpdeskUSBAgent"
+        );
+        private static readonly string InstalledExePath = Path.Combine(InstallDir, "ITHelpdeskUSBAgent.exe");
+        private static readonly string ConfigFilePath = Path.Combine(InstallDir, "agent-config.json");
+        private static readonly string LocalConfigFilePath = Path.Combine(
             AppDomain.CurrentDomain.BaseDirectory,
             "agent-config.json"
         );
-        private static readonly string Hostname = Environment.MachineName;
-        private static readonly string OsUsername = Environment.UserName;
-        private static string LocalIp = "127.0.0.1";
-        private static readonly Dictionary<string, UsbDeviceRecord> ConnectedDevices =
+
+        private readonly string _hostname = Environment.MachineName;
+        private readonly string _osUsername = Environment.UserName;
+        private readonly string _localIp;
+        private readonly bool _isAdmin;
+        private readonly JavaScriptSerializer _jsonSerializer = new JavaScriptSerializer();
+        private readonly Dictionary<string, UsbDeviceRecord> _connectedDevices =
             new Dictionary<string, UsbDeviceRecord>(StringComparer.OrdinalIgnoreCase);
-        private static readonly JavaScriptSerializer JsonSerializer = new JavaScriptSerializer();
-        private static int SimulatedCounter = 1;
+        private readonly HashSet<string> _blockedByAgent =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly object _syncLock = new object();
+        private readonly List<string> _logBuffer = new List<string>();
+        private readonly SynchronizationContext _uiContext;
 
-        static void Main(string[] args)
+        private string _serverBaseUrl = "http://192.168.1.6:5000";
+        private bool _isConnectedToServer = false;
+        private volatile bool _isRunning = true;
+        private int _simulatedCounter = 1;
+
+        private NotifyIcon _trayIcon;
+        private ToolStripMenuItem _statusMenuItem;
+        private ToolStripMenuItem _startupMenuItem;
+        private Form _logForm;
+        private TextBox _logTextBox;
+        private Thread _workerThread;
+
+        public TrayAgentContext(string[] args)
         {
-            try
+            _uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            _localIp = DetectLocalIpv4();
+            _isAdmin = IsRunAsAdministrator();
+
+            BuildTrayIcon();
+            Log("Khởi động IT Helpdesk USB Security & DLP Agent v2.0 (Chạy ngầm System Tray)");
+            Log(string.Format("Máy trạm: {0} | User: {1} | IP: {2} | Quyền Admin: {3}",
+                _hostname, _osUsername, _localIp, _isAdmin ? "CÓ" : "KHÔNG"));
+
+            _workerThread = new Thread(() => RunBackgroundLoop(args));
+            _workerThread.IsBackground = true;
+            _workerThread.Start();
+        }
+
+        private void BuildTrayIcon()
+        {
+            ContextMenuStrip menu = new ContextMenuStrip();
+
+            _statusMenuItem = new ToolStripMenuItem("● Đang kết nối máy chủ...");
+            _statusMenuItem.Enabled = false;
+            menu.Items.Add(_statusMenuItem);
+
+            menu.Items.Add(new ToolStripSeparator());
+
+            ToolStripMenuItem syncItem = new ToolStripMenuItem("Đồng bộ thiết bị USB ngay");
+            syncItem.Click += (s, e) => ThreadPool.QueueUserWorkItem(_ => SyncAllConnectedUsbToServer(true));
+            menu.Items.Add(syncItem);
+
+            ToolStripMenuItem logItem = new ToolStripMenuItem("Xem Nhật ký hoạt động (Log)...");
+            logItem.Click += (s, e) => ShowLogWindow();
+            menu.Items.Add(logItem);
+
+            ToolStripMenuItem changeServerItem = new ToolStripMenuItem("Đổi địa chỉ IP Server...");
+            changeServerItem.Click += (s, e) => PromptChangeServerUrl();
+            menu.Items.Add(changeServerItem);
+
+            ToolStripMenuItem simItem = new ToolStripMenuItem("Giả lập cắm USB (Test)");
+            simItem.Click += (s, e) => ThreadPool.QueueUserWorkItem(_ => TriggerSimulatedUsbEvent());
+            menu.Items.Add(simItem);
+
+            menu.Items.Add(new ToolStripSeparator());
+
+            _startupMenuItem = new ToolStripMenuItem("Tự động chạy cùng Windows (Quyền Admin)");
+            _startupMenuItem.CheckOnClick = false;
+            _startupMenuItem.Checked = IsStartupTaskRegistered();
+            _startupMenuItem.Click += (s, e) => ToggleStartupTask();
+            menu.Items.Add(_startupMenuItem);
+
+            menu.Items.Add(new ToolStripSeparator());
+
+            ToolStripMenuItem exitItem = new ToolStripMenuItem("Thoát Agent");
+            exitItem.Click += (s, e) => ExitAgent();
+            menu.Items.Add(exitItem);
+
+            _trayIcon = new NotifyIcon();
+            _trayIcon.Icon = CreateShieldIcon();
+            _trayIcon.Text = "IT Helpdesk USB Security Agent";
+            _trayIcon.ContextMenuStrip = menu;
+            _trayIcon.Visible = true;
+            _trayIcon.DoubleClick += (s, e) => ShowLogWindow();
+        }
+
+        private Icon CreateShieldIcon()
+        {
+            Bitmap bmp = new Bitmap(32, 32);
+            using (Graphics g = Graphics.FromImage(bmp))
             {
-                Console.OutputEncoding = Encoding.UTF8;
-                Console.InputEncoding = Encoding.UTF8;
-            }
-            catch { }
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.Clear(Color.Transparent);
 
-            Console.Title = "IT Helpdesk - Endpoint USB Security Agent (v1.0.0)";
-            LocalIp = DetectLocalIpv4();
-
-            PrintBanner();
-            InitializeServerConnection(args);
-
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n[*] Đang quét danh sách thiết bị USB hiện tại trên máy...");
-            Console.ResetColor();
-
-            // Quét danh sách thiết bị USB ban đầu và gửi các thiết bị lưu trữ đang cắm lên Server
-            Dictionary<string, UsbDeviceRecord> initialDevices = ScanCurrentUsbDevices();
-            foreach (var kvp in initialDevices)
-            {
-                ConnectedDevices[kvp.Key] = kvp.Value;
-                // Tự động báo cáo các ổ đĩa USB Storage đang cắm khi khởi động Agent
-                if (kvp.Value.DeviceType == "storage")
+                using (GraphicsPath path = new GraphicsPath())
                 {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine(
-                        "  -> Phát hiện USB đang cắm sẵn: {0} ({1})",
-                        kvp.Value.DeviceName,
-                        kvp.Value.DriveLetter ?? "USB"
-                    );
-                    Console.ResetColor();
-                    SendUsbEventToServer(kvp.Value, "connected");
+                    path.AddPolygon(new Point[]
+                    {
+                        new Point(16, 2),
+                        new Point(29, 7),
+                        new Point(27, 19),
+                        new Point(16, 30),
+                        new Point(5, 19),
+                        new Point(3, 7)
+                    });
+                    using (SolidBrush bg = new SolidBrush(Color.FromArgb(102, 71, 240)))
+                    {
+                        g.FillPath(bg, path);
+                    }
+                    using (Pen border = new Pen(Color.White, 1.5f))
+                    {
+                        g.DrawPath(border, path);
+                    }
+                }
+
+                // Draw crisp white USB trident symbol inside shield
+                using (Pen whitePen = new Pen(Color.White, 2f))
+                {
+                    whitePen.StartCap = LineCap.Round;
+                    whitePen.EndCap = LineCap.Round;
+                    g.DrawLine(whitePen, 16, 9, 16, 22);
+                    g.DrawLine(whitePen, 16, 17, 11, 14);
+                    g.DrawLine(whitePen, 16, 15, 21, 12);
+                }
+                using (SolidBrush whiteBrush = new SolidBrush(Color.White))
+                {
+                    g.FillEllipse(whiteBrush, 13.5f, 20f, 5f, 5f);
+                    g.FillEllipse(whiteBrush, 9.5f, 11.5f, 3.5f, 3.5f);
+                    g.FillRectangle(whiteBrush, 19.5f, 9.5f, 3.5f, 3.5f);
                 }
             }
+            IntPtr hIcon = bmp.GetHicon();
+            return Icon.FromHandle(hIcon);
+        }
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine(
-                "[✓] Đã ghi nhận {0} thiết bị ngoại vi USB nền. Đang lắng nghe sự kiện cắm/rút theo thời gian thực...",
-                ConnectedDevices.Count
+        private void RunBackgroundLoop(string[] args)
+        {
+            if (_isAdmin)
+            {
+                EnsureAutoInstallAndStartupTask();
+            }
+            else
+            {
+                Log("[!] Cảnh báo: Agent chưa chạy bằng quyền Administrator — không thể chặn cứng phần cứng USB.");
+            }
+
+            InitializeServerConnection(args);
+            ScanAndSyncInitialDevices();
+            SyncPoliciesFromServer();
+
+            ShowBalloon(
+                "IT Helpdesk USB Security Agent",
+                _isConnectedToServer
+                    ? string.Format("Đang bảo vệ ngầm (Server: {0}). Chế độ chặn phần cứng: {1}.",
+                        _serverBaseUrl, _isAdmin ? "BẬT" : "Cần quyền Admin")
+                    : "Đang chạy ngầm ở System Tray. Chưa kết nối được tới máy chủ Server.",
+                _isConnectedToServer ? ToolTipIcon.Info : ToolTipIcon.Warning
             );
-            Console.ResetColor();
-            PrintHotkeysHelp();
 
-            // Vòng lặp lắng nghe sự kiện cắm/rút USB & phím tắt
-            while (true)
+            int cycle = 0;
+            while (_isRunning)
             {
                 try
                 {
-                    if (Console.KeyAvailable)
-                    {
-                        ConsoleKeyInfo keyInfo = Console.ReadKey(true);
-                        if (keyInfo.Key == ConsoleKey.Q)
-                        {
-                            Console.WriteLine("\n[!] Đang dừng USB Security Agent...");
-                            break;
-                        }
-                        else if (keyInfo.Key == ConsoleKey.T)
-                        {
-                            TriggerSimulatedUsbEvent();
-                        }
-                        else if (keyInfo.Key == ConsoleKey.S)
-                        {
-                            SyncAllConnectedUsbToServer();
-                        }
-                        else if (keyInfo.Key == ConsoleKey.C)
-                        {
-                            PromptForServerUrl();
-                        }
-                    }
-
                     PollUsbChanges();
+
+                    // Đồng bộ chính sách chặn/mở khóa từ Server mỗi ~3 giây
+                    if (cycle % 2 == 0)
+                    {
+                        SyncPoliciesFromServer();
+                    }
+                    cycle++;
                 }
                 catch (Exception ex)
                 {
-                    Console.ForegroundColor = ConsoleColor.DarkGray;
-                    Console.WriteLine("[Debug] Lỗi chu kỳ quét: " + ex.Message);
-                    Console.ResetColor();
+                    Log("[Debug] Lỗi chu kỳ quét: " + ex.Message);
                 }
 
                 Thread.Sleep(1500);
             }
         }
 
-        private static void PrintBanner()
+        private void EnsureAutoInstallAndStartupTask()
         {
-            Console.Clear();
-            Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("========================================================================");
-            Console.WriteLine("       IT HELPDESK - ENDPOINT USB SECURITY & DLP AGENT (v1.0.0)         ");
-            Console.WriteLine("   Giám sát cắm/rút thiết bị ngoại vi USB & Cảnh báo Realtime lên IT   ");
-            Console.WriteLine("========================================================================");
-            Console.ResetColor();
-            Console.WriteLine("  • Tên máy trạm (Hostname) : {0}", Hostname);
-            Console.WriteLine("  • Người dùng Windows      : {0}", OsUsername);
-            Console.WriteLine("  • Địa chỉ IP LAN máy trạm : {0}", LocalIp);
-            Console.WriteLine("------------------------------------------------------------------------");
-        }
-
-        private static void PrintHotkeysHelp()
-        {
-            Console.WriteLine("------------------------------------------------------------------------");
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine("  PHÍM TẮT ĐIỀU KHIỂN NHANH:");
-            Console.WriteLine("   [T] Giả lập cắm thiết bị USB mới (Dùng để Test cảnh báo Realtime)");
-            Console.WriteLine("   [S] Đồng bộ toàn bộ thiết bị USB đang cắm trên máy lên Server");
-            Console.WriteLine("   [C] Đổi địa chỉ IP máy chủ Server (Khi chuyển mạng LAN / Wi-Fi)");
-            Console.WriteLine("   [Q] Thoát chương trình Agent");
-            Console.ResetColor();
-            Console.WriteLine("------------------------------------------------------------------------\n");
-        }
-
-        private static string NormalizeServerUrl(string raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) return null;
-            string s = raw.Trim().TrimEnd('/');
-            if (!s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
-                !s.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                if (!s.Contains(":"))
+                if (!Directory.Exists(InstallDir))
                 {
-                    s = "http://" + s + ":5000";
+                    Directory.CreateDirectory(InstallDir);
                 }
-                else
+
+                string currentExe = Process.GetCurrentProcess().MainModule.FileName;
+                if (!string.Equals(currentExe, InstalledExePath, StringComparison.OrdinalIgnoreCase))
                 {
-                    s = "http://" + s;
-                }
-            }
-            if (s.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
-            {
-                s = s.Substring(0, s.Length - 4);
-            }
-            return s;
-        }
-
-        private static void InitializeServerConnection(string[] args)
-        {
-            List<string> candidates = new List<string>();
-
-            if (args != null && args.Length > 0 && !string.IsNullOrWhiteSpace(args[0]))
-            {
-                candidates.Add(NormalizeServerUrl(args[0]));
-            }
-
-            if (File.Exists(ConfigFilePath))
-            {
-                try
-                {
-                    string json = File.ReadAllText(ConfigFilePath, Encoding.UTF8);
-                    AgentConfig cfg = JsonSerializer.Deserialize<AgentConfig>(json);
-                    if (cfg != null && !string.IsNullOrWhiteSpace(cfg.serverUrl))
+                    try
                     {
-                        string normalized = NormalizeServerUrl(cfg.serverUrl);
-                        if (!candidates.Contains(normalized))
-                        {
-                            candidates.Add(normalized);
-                        }
+                        File.Copy(currentExe, InstalledExePath, true);
+                        Log("[✓] Đã sao chép bản cài đặt vào: " + InstalledExePath);
+                    }
+                    catch (Exception copyEx)
+                    {
+                        Log("[!] Không thể cập nhật file cài đặt (có thể đang chạy): " + copyEx.Message);
                     }
                 }
-                catch { }
-            }
 
-            string[] defaults = new string[]
-            {
-                "http://192.168.1.16:5000",
-                "http://192.168.1.6:5000",
-                "http://127.0.0.1:5000"
-            };
-
-            foreach (string d in defaults)
-            {
-                if (!candidates.Contains(d)) candidates.Add(d);
-            }
-
-            Console.WriteLine("[*] Đang kiểm tra các địa chỉ máy chủ đã lưu...");
-            foreach (string candidate in candidates)
-            {
-                if (string.IsNullOrEmpty(candidate)) continue;
-                Console.Write("    Thử kết nối tới {0} ... ", candidate);
-                if (PingServer(candidate))
+                if (File.Exists(LocalConfigFilePath) && !File.Exists(ConfigFilePath))
                 {
-                    ServerBaseUrl = candidate;
-                    SaveConfig(ServerBaseUrl);
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine("THÀNH CÔNG!");
-                    Console.ResetColor();
-                    return;
+                    try { File.Copy(LocalConfigFilePath, ConfigFilePath, true); } catch { }
                 }
-                else
+
+                string targetPath = File.Exists(InstalledExePath) ? InstalledExePath : currentExe;
+                if (RegisterStartupTask(targetPath))
                 {
-                    Console.ForegroundColor = ConsoleColor.DarkGray;
-                    Console.WriteLine("Không phản hồi");
-                    Console.ResetColor();
+                    Log("[✓] Đã đăng ký tự khởi động cùng Windows với quyền Administrator (Task Scheduler).");
+                    UpdateUi(() =>
+                    {
+                        if (_startupMenuItem != null) _startupMenuItem.Checked = true;
+                    });
                 }
             }
-
-            // Nếu các IP cũ không phản hồi (do đổi mạng Wi-Fi / Hotspot điện thoại),
-            // TỰ ĐỘNG QUÉT TOÀN BỘ DẢI MẠNG (Auto Subnet Sweep)
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("\n[*] Phát hiện đổi mạng Wi-Fi/Hotspot! Đang tự động quét toàn mạng để tìm máy Server...");
-            Console.ResetColor();
-
-            string discoveredUrl = AutoDiscoverServerOnSubnet(LocalIp);
-            if (!string.IsNullOrEmpty(discoveredUrl))
+            catch (Exception ex)
             {
-                ServerBaseUrl = discoveredUrl;
-                SaveConfig(ServerBaseUrl);
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("\n[✓] ĐÃ TỰ ĐỘNG TÌM THẤY VÀ KẾT NỐI TỚI SERVER: {0}", ServerBaseUrl);
-                Console.ResetColor();
+                Log("[!] Lỗi thiết lập tự khởi động: " + ex.Message);
+            }
+        }
+
+        private bool IsStartupTaskRegistered()
+        {
+            string output;
+            int code = RunProcess("schtasks.exe", string.Format("/query /tn \"{0}\"", TaskName), out output);
+            return code == 0;
+        }
+
+        private bool RegisterStartupTask(string exePath)
+        {
+            string args = string.Format(
+                "/create /tn \"{0}\" /tr \"\\\"{1}\\\"\" /sc onlogon /rl highest /f",
+                TaskName,
+                exePath
+            );
+            string output;
+            int code = RunProcess("schtasks.exe", args, out output);
+            if (code != 0)
+            {
+                Log("[!] Đăng ký Task Scheduler thất bại: " + output);
+                return false;
+            }
+            return true;
+        }
+
+        private bool UnregisterStartupTask()
+        {
+            string output;
+            int code = RunProcess("schtasks.exe", string.Format("/delete /tn \"{0}\" /f", TaskName), out output);
+            return code == 0;
+        }
+
+        private void ToggleStartupTask()
+        {
+            if (!_isAdmin)
+            {
+                MessageBox.Show(
+                    "Vui lòng chạy ITHelpdeskUSBAgent.exe bằng quyền Administrator để bật/tắt tự khởi động.",
+                    "Cần quyền Administrator",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning
+                );
                 return;
             }
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("\n[!] Không thể tự động tìm thấy Server trên dải mạng hiện tại.");
-            Console.ResetColor();
-            PromptForServerUrl();
+            if (IsStartupTaskRegistered())
+            {
+                if (UnregisterStartupTask())
+                {
+                    _startupMenuItem.Checked = false;
+                    Log("[*] Đã tắt tự động khởi động cùng Windows.");
+                    ShowBalloon("IT Helpdesk USB Agent", "Đã tắt tự động chạy cùng Windows.", ToolTipIcon.Info);
+                }
+            }
+            else
+            {
+                string currentExe = Process.GetCurrentProcess().MainModule.FileName;
+                string targetPath = File.Exists(InstalledExePath) ? InstalledExePath : currentExe;
+                if (RegisterStartupTask(targetPath))
+                {
+                    _startupMenuItem.Checked = true;
+                    Log("[✓] Đã bật tự động khởi động cùng Windows với quyền Admin.");
+                    ShowBalloon("IT Helpdesk USB Agent", "Đã bật tự động chạy ngầm với quyền Admin khi mở máy.", ToolTipIcon.Info);
+                }
+            }
         }
 
-        private static string AutoDiscoverServerOnSubnet(string localIp)
+        private bool SetDeviceEnabled(string pnpDeviceId, bool enable)
         {
-            if (string.IsNullOrEmpty(localIp) || localIp == "127.0.0.1") return null;
-
-            int lastDot = localIp.LastIndexOf('.');
-            if (lastDot < 0) return null;
-            string prefix = localIp.Substring(0, lastDot + 1); // VD: "192.168.43." hoặc "172.20.10."
-
-            string foundUrl = null;
-            object lockObj = new object();
-
-            Console.Write("    Đang quét nhanh 254 IP trong dải {0}* ", prefix);
-
-            // Quét song song đa luồng để hoàn thành trong 1-2 giây
-            System.Threading.Tasks.Parallel.For(1, 255, new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = 40 }, (i, state) =>
+            if (string.IsNullOrWhiteSpace(pnpDeviceId)) return false;
+            if (pnpDeviceId.IndexOf("VEN_SIMULATED", StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                if (foundUrl != null)
+                Log(string.Format("[*] Bỏ qua pnputil cho thiết bị giả lập: {0}", pnpDeviceId));
+                return true;
+            }
+
+            if (!_isAdmin)
+            {
+                Log("[!] Không thể " + (enable ? "mở khóa" : "chặn") + " phần cứng vì Agent chưa có quyền Admin.");
+                return false;
+            }
+
+            string action = enable ? "/enable-device" : "/disable-device";
+            string pnputilPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "pnputil.exe"
+            );
+            if (!File.Exists(pnputilPath)) pnputilPath = "pnputil.exe";
+
+            string output;
+            int exitCode = RunProcess(pnputilPath, string.Format("{0} \"{1}\"", action, pnpDeviceId), out output);
+            Log(string.Format("[PnP] {0} {1} => exit={2} | {3}",
+                action, pnpDeviceId, exitCode, (output ?? "").Replace("\r", " ").Replace("\n", " ").Trim()));
+            return exitCode == 0;
+        }
+
+        private int RunProcess(string fileName, string arguments, out string output)
+        {
+            output = "";
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo
                 {
-                    state.Stop();
-                    return;
+                    FileName = fileName,
+                    Arguments = arguments,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                };
+
+                using (Process proc = Process.Start(psi))
+                {
+                    string stdout = proc.StandardOutput.ReadToEnd();
+                    string stderr = proc.StandardError.ReadToEnd();
+                    proc.WaitForExit(10000);
+                    output = (stdout + " " + stderr).Trim();
+                    return proc.ExitCode;
                 }
+            }
+            catch (Exception ex)
+            {
+                output = ex.Message;
+                return -1;
+            }
+        }
 
-                string candidateIp = prefix + i;
-                if (candidateIp == localIp) return; // Bỏ qua IP chính mình
+        private void SyncPoliciesFromServer()
+        {
+            if (string.IsNullOrEmpty(_serverBaseUrl)) return;
 
-                string testUrl = "http://" + candidateIp + ":5000";
-                try
+            try
+            {
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(_serverBaseUrl + "/api/usb/agent-policies");
+                req.Method = "GET";
+                req.Timeout = 4000;
+
+                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                using (StreamReader reader = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
                 {
-                    HttpWebRequest req = (HttpWebRequest)WebRequest.Create(testUrl + "/api/usb/agent-ping");
-                    req.Method = "GET";
-                    req.Timeout = 800; // 800ms phản hồi trong mạng LAN
-                    req.ReadWriteTimeout = 800;
+                    string body = reader.ReadToEnd();
+                    var parsed = _jsonSerializer.DeserializeObject(body) as Dictionary<string, object>;
+                    if (parsed == null || !parsed.ContainsKey("data")) return;
 
-                    using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                    var dataObj = parsed["data"] as Dictionary<string, object>;
+                    if (dataObj == null || !dataObj.ContainsKey("policies")) return;
+
+                    var policies = dataObj["policies"] as object[];
+                    if (policies == null) return;
+
+                    HashSet<string> serverBlockedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    Dictionary<string, string> policyNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (object item in policies)
                     {
-                        if (resp.StatusCode == HttpStatusCode.OK)
+                        var dict = item as Dictionary<string, object>;
+                        if (dict == null) continue;
+                        string devId = dict.ContainsKey("deviceId") && dict["deviceId"] != null
+                            ? dict["deviceId"].ToString().Trim()
+                            : "";
+                        string status = dict.ContainsKey("status") && dict["status"] != null
+                            ? dict["status"].ToString().Trim().ToLowerInvariant()
+                            : "unverified";
+                        string devName = dict.ContainsKey("deviceName") && dict["deviceName"] != null
+                            ? dict["deviceName"].ToString().Trim()
+                            : devId;
+
+                        if (string.IsNullOrEmpty(devId)) continue;
+                        policyNames[devId] = devName;
+
+                        if (status == "blocked")
                         {
-                            lock (lockObj)
-                            {
-                                if (foundUrl == null)
-                                {
-                                    foundUrl = testUrl;
-                                    state.Stop();
-                                }
-                            }
+                            serverBlockedIds.Add(devId);
                         }
                     }
-                }
-                catch { }
-            });
 
-            Console.WriteLine();
-            return foundUrl;
-        }
+                    lock (_syncLock)
+                    {
+                        // 1. Chặn ngay các thiết bị đang cắm trên máy này nằm trong Blacklist
+                        foreach (string blockedId in serverBlockedIds)
+                        {
+                            if (_connectedDevices.ContainsKey(blockedId) && !_blockedByAgent.Contains(blockedId))
+                            {
+                                string devName = _connectedDevices[blockedId].DeviceName ?? blockedId;
+                                bool disabled = SetDeviceEnabled(blockedId, false);
+                                _blockedByAgent.Add(blockedId);
+                                try { SystemSounds.Exclamation.Play(); } catch { }
+                                Log(string.Format("🚨 [CHẶN PHẦN CỨNG] {0} ({1}) — Trạng thái: {2}",
+                                    devName, blockedId, disabled ? "ĐÃ NGẮT KẾT NỐI" : "Cần quyền Admin"));
+                                ShowBalloon(
+                                    "🚨 Đã chặn thiết bị USB (Blacklist)",
+                                    disabled
+                                        ? string.Format("Thiết bị \"{0}\" đã bị vô hiệu hóa theo chính sách bảo mật IT.", devName)
+                                        : string.Format("Phát hiện thiết bị bị chặn \"{0}\".", devName),
+                                    ToolTipIcon.Error
+                                );
+                            }
+                        }
 
-        private static void PromptForServerUrl()
-        {
-            while (true)
-            {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write("\n👉 Nhập địa chỉ IP của máy chạy Server (VD: 192.168.1.16 hoặc 127.0.0.1): ");
-                Console.ResetColor();
-                string input = Console.ReadLine();
-                string candidate = NormalizeServerUrl(input);
-                if (string.IsNullOrEmpty(candidate))
-                {
-                    continue;
-                }
+                        // 2. Mở khóa lại các thiết bị đã bị Agent chặn trước đó nhưng nay Admin đã Duyệt / Bỏ chặn
+                        List<string> toUnblock = new List<string>();
+                        foreach (string currentlyBlocked in _blockedByAgent)
+                        {
+                            if (!serverBlockedIds.Contains(currentlyBlocked))
+                            {
+                                toUnblock.Add(currentlyBlocked);
+                            }
+                        }
 
-                Console.Write("    Đang kiểm tra kết nối tới {0} ... ", candidate);
-                if (PingServer(candidate))
-                {
-                    ServerBaseUrl = candidate;
-                    SaveConfig(ServerBaseUrl);
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine("KẾT NỐI THÀNH CÔNG!");
-                    Console.ResetColor();
-                    break;
-                }
-                else
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.WriteLine("THẤT BẠI! Hãy đảm bảo máy Server đang bật backend ở cổng 5000.");
-                    Console.ResetColor();
-                }
-            }
-        }
+                        foreach (string unblockId in toUnblock)
+                        {
+                            string devName = _connectedDevices.ContainsKey(unblockId)
+                                ? _connectedDevices[unblockId].DeviceName
+                                : (policyNames.ContainsKey(unblockId) ? policyNames[unblockId] : unblockId);
+                            bool enabled = SetDeviceEnabled(unblockId, true);
+                            _blockedByAgent.Remove(unblockId);
+                            Log(string.Format("✅ [MỞ KHÓA PHẦN CỨNG] {0} ({1}) — Trạng thái: {2}",
+                                devName, unblockId, enabled ? "ĐÃ KÍCH HOẠT LẠI" : "Không thể mở"));
+                            ShowBalloon(
+                                "✅ Đã mở khóa thiết bị USB",
+                                string.Format("Thiết bị \"{0}\" đã được IT phê duyệt và kích hoạt lại.", devName),
+                                ToolTipIcon.Info
+                            );
+                        }
+                    }
 
-        private static void SaveConfig(string url)
-        {
-            try
-            {
-                string json = "{\"serverUrl\": \"" + url.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"}";
-                File.WriteAllText(ConfigFilePath, json, Encoding.UTF8);
-            }
-            catch { }
-        }
-
-        private static bool PingServer(string baseUrl)
-        {
-            try
-            {
-                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(baseUrl + "/api/usb/agent-ping");
-                req.Method = "GET";
-                req.Timeout = 2500;
-                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
-                {
-                    return resp.StatusCode == HttpStatusCode.OK;
+                    if (!_isConnectedToServer)
+                    {
+                        _isConnectedToServer = true;
+                        UpdateStatusMenu();
+                    }
                 }
             }
             catch
             {
-                return false;
+                if (_isConnectedToServer)
+                {
+                    _isConnectedToServer = false;
+                    UpdateStatusMenu();
+                }
             }
         }
 
-        private static void PollUsbChanges()
+        private void ScanAndSyncInitialDevices()
         {
-            Dictionary<string, UsbDeviceRecord> current = ScanCurrentUsbDevices();
-
-            // Kiểm tra thiết bị mới cắm vào
-            foreach (var kvp in current)
+            Dictionary<string, UsbDeviceRecord> initialDevices = ScanCurrentUsbDevices();
+            lock (_syncLock)
             {
-                if (!ConnectedDevices.ContainsKey(kvp.Key))
+                foreach (var kvp in initialDevices)
                 {
-                    ConnectedDevices[kvp.Key] = kvp.Value;
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine(
-                        "\n[{0}] 🔌 PHÁT HIỆN CẮM THIẾT BỊ USB MỚI:",
-                        DateTime.Now.ToString("HH:mm:ss")
-                    );
-                    Console.ResetColor();
-                    Console.WriteLine("   • Tên thiết bị : {0}", kvp.Value.DeviceName);
-                    Console.WriteLine("   • Hãng / Mã ID : {0} ({1})", kvp.Value.Vendor, kvp.Value.DeviceId);
-                    if (!string.IsNullOrEmpty(kvp.Value.DriveLetter))
-                    {
-                        Console.WriteLine("   • Ổ đĩa Mount  : {0} [{1}]", kvp.Value.DriveLetter, kvp.Value.VolumeName);
-                    }
+                    _connectedDevices[kvp.Key] = kvp.Value;
+                }
+            }
+            Log(string.Format("[✓] Đã ghi nhận {0} thiết bị USB hiện có trên máy.", initialDevices.Count));
 
+            foreach (var kvp in initialDevices)
+            {
+                if (kvp.Value.DeviceType == "storage")
+                {
                     SendUsbEventToServer(kvp.Value, "connected");
                 }
             }
+        }
 
-            // Kiểm tra thiết bị vừa rút ra
-            List<string> removedKeys = new List<string>();
-            foreach (var kvp in ConnectedDevices)
+        private void PollUsbChanges()
+        {
+            Dictionary<string, UsbDeviceRecord> current = ScanCurrentUsbDevices();
+            List<UsbDeviceRecord> newlyConnected = new List<UsbDeviceRecord>();
+            List<UsbDeviceRecord> newlyRemoved = new List<UsbDeviceRecord>();
+
+            lock (_syncLock)
             {
-                if (!current.ContainsKey(kvp.Key))
+                foreach (var kvp in current)
                 {
-                    removedKeys.Add(kvp.Key);
+                    if (!_connectedDevices.ContainsKey(kvp.Key))
+                    {
+                        _connectedDevices[kvp.Key] = kvp.Value;
+                        newlyConnected.Add(kvp.Value);
+                    }
+                }
+
+                List<string> removedKeys = new List<string>();
+                foreach (var kvp in _connectedDevices)
+                {
+                    if (!current.ContainsKey(kvp.Key))
+                    {
+                        removedKeys.Add(kvp.Key);
+                    }
+                }
+
+                foreach (string key in removedKeys)
+                {
+                    newlyRemoved.Add(_connectedDevices[key]);
+                    _connectedDevices.Remove(key);
+                    _blockedByAgent.Remove(key);
                 }
             }
 
-            foreach (string key in removedKeys)
+            foreach (UsbDeviceRecord dev in newlyConnected)
             {
-                UsbDeviceRecord removed = ConnectedDevices[key];
-                ConnectedDevices.Remove(key);
+                Log(string.Format("🔌 Phát hiện cắm mới: {0} ({1})", dev.DeviceName, dev.DeviceId));
+                SendUsbEventToServer(dev, "connected");
+            }
 
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine(
-                    "\n[{0}] 📤 PHÁT HIỆN RÚT THIẾT BỊ USB:",
-                    DateTime.Now.ToString("HH:mm:ss")
-                );
-                Console.ResetColor();
-                Console.WriteLine("   • Tên thiết bị : {0}", removed.DeviceName);
-
-                SendUsbEventToServer(removed, "disconnected");
+            foreach (UsbDeviceRecord dev in newlyRemoved)
+            {
+                Log(string.Format("📤 Phát hiện rút thiết bị: {0}", dev.DeviceName));
+                SendUsbEventToServer(dev, "disconnected");
             }
         }
 
-        private static void SyncAllConnectedUsbToServer()
+        private void SyncAllConnectedUsbToServer(bool showNotification)
         {
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n[*] Đang đồng bộ các thiết bị USB đang kết nối lên Server...");
-            Console.ResetColor();
+            Dictionary<string, UsbDeviceRecord> current = ScanCurrentUsbDevices();
+            lock (_syncLock)
+            {
+                _connectedDevices.Clear();
+                foreach (var kvp in current)
+                {
+                    _connectedDevices[kvp.Key] = kvp.Value;
+                }
+            }
+
             int count = 0;
-            foreach (var kvp in ConnectedDevices)
+            foreach (var kvp in current)
             {
                 SendUsbEventToServer(kvp.Value, "connected");
                 count++;
             }
-            Console.WriteLine("[✓] Đã gửi thông tin {0} thiết bị USB lên Server.", count);
+
+            SyncPoliciesFromServer();
+            Log(string.Format("[✓] Đã đồng bộ {0} thiết bị USB lên Server.", count));
+            if (showNotification)
+            {
+                ShowBalloon(
+                    "Đồng bộ thiết bị USB",
+                    string.Format("Đã gửi thông tin {0} thiết bị USB lên máy chủ IT Helpdesk.", count),
+                    ToolTipIcon.Info
+                );
+            }
         }
 
-        private static void TriggerSimulatedUsbEvent()
+        private void TriggerSimulatedUsbEvent()
         {
             string[] sampleNames = new string[]
             {
@@ -464,9 +665,9 @@ namespace ITHelpdeskUSBAgent
                 "Generic USB Vendor (VID_FFFF)"
             };
 
-            int idx = (SimulatedCounter - 1) % sampleNames.Length;
-            string serial = "SIM" + DateTime.Now.ToString("MMddHHmmss") + SimulatedCounter;
-            SimulatedCounter++;
+            int idx = (_simulatedCounter - 1) % sampleNames.Length;
+            string serial = "SIM" + DateTime.Now.ToString("MMddHHmmss") + _simulatedCounter;
+            _simulatedCounter++;
 
             UsbDeviceRecord sim = new UsbDeviceRecord
             {
@@ -479,18 +680,11 @@ namespace ITHelpdeskUSBAgent
                 VolumeName = "USB_NHANVIEN (64.0 GB)"
             };
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine(
-                "\n[{0}] 🧪 [GIẢ LẬP TEST] Nhân viên vừa cắm USB mới: {1}",
-                DateTime.Now.ToString("HH:mm:ss"),
-                sim.DeviceName
-            );
-            Console.ResetColor();
-
+            Log("🧪 [Test] Giả lập cắm USB: " + sim.DeviceName);
             SendUsbEventToServer(sim, "connected");
         }
 
-        private static void SendUsbEventToServer(UsbDeviceRecord device, string eventType)
+        private void SendUsbEventToServer(UsbDeviceRecord device, string eventType)
         {
             try
             {
@@ -504,16 +698,16 @@ namespace ITHelpdeskUSBAgent
                     { "driveLetter", device.DriveLetter },
                     { "volumeName", device.VolumeName },
                     { "eventType", eventType },
-                    { "hostname", Hostname },
-                    { "osUsername", OsUsername },
-                    { "ipAddress", LocalIp },
-                    { "agentVersion", "1.0.0-win64" }
+                    { "hostname", _hostname },
+                    { "osUsername", _osUsername },
+                    { "ipAddress", _localIp },
+                    { "agentVersion", "2.0.0-tray-win64" }
                 };
 
-                string jsonBody = JsonSerializer.Serialize(payload);
+                string jsonBody = _jsonSerializer.Serialize(payload);
                 byte[] bytes = Encoding.UTF8.GetBytes(jsonBody);
 
-                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(ServerBaseUrl + "/api/usb/agent-event");
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(_serverBaseUrl + "/api/usb/agent-event");
                 req.Method = "POST";
                 req.ContentType = "application/json; charset=utf-8";
                 req.ContentLength = bytes.Length;
@@ -528,7 +722,7 @@ namespace ITHelpdeskUSBAgent
                 using (StreamReader reader = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
                 {
                     string responseText = reader.ReadToEnd();
-                    var parsed = JsonSerializer.DeserializeObject(responseText) as Dictionary<string, object>;
+                    var parsed = _jsonSerializer.DeserializeObject(responseText) as Dictionary<string, object>;
                     string policyStatus = "unverified";
                     string message = "Đã gửi thông báo lên Server.";
 
@@ -544,32 +738,405 @@ namespace ITHelpdeskUSBAgent
                         }
                     }
 
-                    if (policyStatus == "blocked")
+                    if (policyStatus == "blocked" && eventType == "connected")
                     {
-                        Console.ForegroundColor = ConsoleColor.Red;
-                        Console.WriteLine("   🚨 [PHẢN HỒI TỪ SERVER - BỊ CHẶN]: " + message);
-                        Console.ResetColor();
-                        try { Console.Beep(1200, 450); } catch { }
+                        bool disabled = false;
+                        lock (_syncLock)
+                        {
+                            disabled = SetDeviceEnabled(device.DeviceId, false);
+                            _blockedByAgent.Add(device.DeviceId);
+                        }
+                        try { SystemSounds.Exclamation.Play(); } catch { }
+                        Log("🚨 [BỊ CHẶN]: " + device.DeviceName + " — " + (disabled ? "Đã ngắt phần cứng" : message));
+                        ShowBalloon(
+                            "🚨 Thiết bị USB bị chặn (Blacklist)",
+                            disabled
+                                ? string.Format("Đã ngắt thiết bị \"{0}\" theo chính sách bảo mật công ty.", device.DeviceName)
+                                : message,
+                            ToolTipIcon.Error
+                        );
                     }
                     else if (policyStatus == "trusted")
                     {
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        Console.WriteLine("   ✅ [PHẢN HỒI TỪ SERVER - HỢP LỆ]: " + message);
-                        Console.ResetColor();
+                        Log("✅ [HỢP LỆ]: " + device.DeviceName);
                     }
-                    else
+                    else if (eventType == "connected")
                     {
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.WriteLine("   ⚠️ [PHẢN HỒI TỪ SERVER - CẢNH BÁO IT]: " + message);
-                        Console.ResetColor();
+                        Log("⚠️ [CHƯA XÁC MINH]: " + device.DeviceName);
+                    }
+
+                    if (!_isConnectedToServer)
+                    {
+                        _isConnectedToServer = true;
+                        UpdateStatusMenu();
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("   [x] Không thể gửi sự kiện lên Server ({0}): {1}", ServerBaseUrl, ex.Message);
-                Console.ResetColor();
+                Log(string.Format("[x] Không thể gửi sự kiện tới {0}: {1}", _serverBaseUrl, ex.Message));
+            }
+        }
+
+        private string NormalizeServerUrl(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            string s = raw.Trim().TrimEnd('/');
+            if (!s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                !s.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                s = s.Contains(":") ? ("http://" + s) : ("http://" + s + ":5000");
+            }
+            if (s.EndsWith("/api", StringComparison.OrdinalIgnoreCase))
+            {
+                s = s.Substring(0, s.Length - 4);
+            }
+            return s;
+        }
+
+        private void InitializeServerConnection(string[] args)
+        {
+            List<string> candidates = new List<string>();
+            if (args != null && args.Length > 0 && !string.IsNullOrWhiteSpace(args[0]))
+            {
+                candidates.Add(NormalizeServerUrl(args[0]));
+            }
+
+            foreach (string cfgPath in new string[] { ConfigFilePath, LocalConfigFilePath })
+            {
+                if (File.Exists(cfgPath))
+                {
+                    try
+                    {
+                        string json = File.ReadAllText(cfgPath, Encoding.UTF8);
+                        AgentConfig cfg = _jsonSerializer.Deserialize<AgentConfig>(json);
+                        if (cfg != null && !string.IsNullOrWhiteSpace(cfg.serverUrl))
+                        {
+                            string normalized = NormalizeServerUrl(cfg.serverUrl);
+                            if (!candidates.Contains(normalized)) candidates.Add(normalized);
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            string[] defaults = new string[]
+            {
+                "http://127.0.0.1:5000",
+                "http://192.168.1.6:5000",
+                "http://192.168.1.16:5000"
+            };
+            foreach (string d in defaults)
+            {
+                if (!candidates.Contains(d)) candidates.Add(d);
+            }
+
+            foreach (string candidate in candidates)
+            {
+                if (string.IsNullOrEmpty(candidate)) continue;
+                if (PingServer(candidate))
+                {
+                    _serverBaseUrl = candidate;
+                    _isConnectedToServer = true;
+                    SaveConfig(_serverBaseUrl);
+                    Log("[✓] Kết nối Server thành công: " + _serverBaseUrl);
+                    UpdateStatusMenu();
+                    return;
+                }
+            }
+
+            Log("[*] Đang tự động dò tìm Server trong mạng LAN...");
+            string discoveredUrl = AutoDiscoverServerOnSubnet(_localIp);
+            if (!string.IsNullOrEmpty(discoveredUrl))
+            {
+                _serverBaseUrl = discoveredUrl;
+                _isConnectedToServer = true;
+                SaveConfig(_serverBaseUrl);
+                Log("[✓] Đã tự động tìm thấy Server: " + _serverBaseUrl);
+                UpdateStatusMenu();
+                return;
+            }
+
+            _isConnectedToServer = false;
+            Log("[!] Chưa tìm thấy máy chủ Server. Nhấp chuột phải vào biểu tượng khay hệ thống -> 'Đổi địa chỉ IP Server...'.");
+            UpdateStatusMenu();
+        }
+
+        private string AutoDiscoverServerOnSubnet(string localIp)
+        {
+            if (string.IsNullOrEmpty(localIp) || localIp == "127.0.0.1") return null;
+            int lastDot = localIp.LastIndexOf('.');
+            if (lastDot < 0) return null;
+            string prefix = localIp.Substring(0, lastDot + 1);
+
+            string foundUrl = null;
+            object lockObj = new object();
+
+            System.Threading.Tasks.Parallel.For(1, 255,
+                new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = 40 },
+                (i, state) =>
+                {
+                    if (foundUrl != null) { state.Stop(); return; }
+                    string candidateIp = prefix + i;
+                    if (candidateIp == localIp) return;
+                    string testUrl = "http://" + candidateIp + ":5000";
+                    if (PingServer(testUrl, 700))
+                    {
+                        lock (lockObj)
+                        {
+                            if (foundUrl == null)
+                            {
+                                foundUrl = testUrl;
+                                state.Stop();
+                            }
+                        }
+                    }
+                });
+
+            return foundUrl;
+        }
+
+        private void SaveConfig(string url)
+        {
+            try
+            {
+                if (!Directory.Exists(InstallDir)) Directory.CreateDirectory(InstallDir);
+                string json = "{\"serverUrl\": \"" + url.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"}";
+                File.WriteAllText(ConfigFilePath, json, Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        private bool PingServer(string baseUrl, int timeoutMs = 2000)
+        {
+            try
+            {
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(baseUrl + "/api/usb/agent-ping");
+                req.Method = "GET";
+                req.Timeout = timeoutMs;
+                req.ReadWriteTimeout = timeoutMs;
+                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                {
+                    return resp.StatusCode == HttpStatusCode.OK;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void PromptChangeServerUrl()
+        {
+            using (Form dialog = new Form())
+            {
+                dialog.Text = "Cấu hình máy chủ IT Helpdesk";
+                dialog.Width = 420;
+                dialog.Height = 165;
+                dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dialog.StartPosition = FormStartPosition.CenterScreen;
+                dialog.MaximizeBox = false;
+                dialog.MinimizeBox = false;
+
+                Label label = new Label
+                {
+                    Left = 16,
+                    Top = 16,
+                    Width = 370,
+                    Text = "Nhập địa chỉ IP hoặc URL máy chủ Backend (VD: 192.168.1.6 hoặc 127.0.0.1):"
+                };
+                TextBox input = new TextBox
+                {
+                    Left = 16,
+                    Top = 44,
+                    Width = 370,
+                    Text = _serverBaseUrl
+                };
+                Button okBtn = new Button
+                {
+                    Text = "Kết nối & Lưu",
+                    Left = 200,
+                    Width = 100,
+                    Top = 82,
+                    DialogResult = DialogResult.OK
+                };
+                Button cancelBtn = new Button
+                {
+                    Text = "Hủy",
+                    Left = 306,
+                    Width = 80,
+                    Top = 82,
+                    DialogResult = DialogResult.Cancel
+                };
+
+                dialog.Controls.Add(label);
+                dialog.Controls.Add(input);
+                dialog.Controls.Add(okBtn);
+                dialog.Controls.Add(cancelBtn);
+                dialog.AcceptButton = okBtn;
+                dialog.CancelButton = cancelBtn;
+
+                if (dialog.ShowDialog() == DialogResult.OK)
+                {
+                    string candidate = NormalizeServerUrl(input.Text);
+                    if (string.IsNullOrEmpty(candidate)) return;
+
+                    ThreadPool.QueueUserWorkItem(_ =>
+                    {
+                        if (PingServer(candidate))
+                        {
+                            _serverBaseUrl = candidate;
+                            _isConnectedToServer = true;
+                            SaveConfig(_serverBaseUrl);
+                            UpdateStatusMenu();
+                            Log("[✓] Đã đổi máy chủ Server thành: " + _serverBaseUrl);
+                            SyncPoliciesFromServer();
+                            ShowBalloon("Kết nối thành công", "Đã kết nối tới Server: " + _serverBaseUrl, ToolTipIcon.Info);
+                        }
+                        else
+                        {
+                            ShowBalloon("Không thể kết nối", "Máy chủ " + candidate + " không phản hồi ở cổng 5000.", ToolTipIcon.Warning);
+                        }
+                    });
+                }
+            }
+        }
+
+        private void ShowLogWindow()
+        {
+            UpdateUi(() =>
+            {
+                if (_logForm == null || _logForm.IsDisposed)
+                {
+                    _logForm = new Form();
+                    _logForm.Text = "IT Helpdesk USB Security Agent — Nhật ký hoạt động";
+                    _logForm.Width = 720;
+                    _logForm.Height = 440;
+                    _logForm.StartPosition = FormStartPosition.CenterScreen;
+                    _logForm.Icon = _trayIcon.Icon;
+
+                    _logTextBox = new TextBox
+                    {
+                        Multiline = true,
+                        ReadOnly = true,
+                        ScrollBars = ScrollBars.Vertical,
+                        Dock = DockStyle.Fill,
+                        Font = new Font("Consolas", 9.5f),
+                        BackColor = Color.FromArgb(15, 23, 42),
+                        ForeColor = Color.FromArgb(226, 232, 240)
+                    };
+
+                    _logForm.Controls.Add(_logTextBox);
+                    _logForm.FormClosing += (s, e) =>
+                    {
+                        if (_isRunning && e.CloseReason == CloseReason.UserClosing)
+                        {
+                            e.Cancel = true;
+                            _logForm.Hide();
+                        }
+                    };
+                }
+
+                lock (_logBuffer)
+                {
+                    _logTextBox.Text = string.Join(Environment.NewLine, _logBuffer);
+                    _logTextBox.SelectionStart = _logTextBox.Text.Length;
+                    _logTextBox.ScrollToCaret();
+                }
+
+                _logForm.Show();
+                _logForm.BringToFront();
+                _logForm.Activate();
+            });
+        }
+
+        private void UpdateStatusMenu()
+        {
+            UpdateUi(() =>
+            {
+                if (_statusMenuItem == null) return;
+                string adminText = _isAdmin ? "Admin" : "User";
+                _statusMenuItem.Text = _isConnectedToServer
+                    ? string.Format("● Đã kết nối: {0} ({1})", _serverBaseUrl, adminText)
+                    : string.Format("○ Chưa kết nối Server ({0})", adminText);
+                string tip = _isConnectedToServer
+                    ? "IT Helpdesk USB Agent — Đang bảo vệ"
+                    : "IT Helpdesk USB Agent — Mất kết nối";
+                _trayIcon.Text = tip.Length > 63 ? tip.Substring(0, 63) : tip;
+            });
+        }
+
+        private void ShowBalloon(string title, string message, ToolTipIcon icon)
+        {
+            UpdateUi(() =>
+            {
+                try
+                {
+                    if (_trayIcon != null && _trayIcon.Visible)
+                    {
+                        _trayIcon.ShowBalloonTip(4000, title, message, icon);
+                    }
+                }
+                catch { }
+            });
+        }
+
+        private void Log(string message)
+        {
+            string line = string.Format("[{0}] {1}", DateTime.Now.ToString("HH:mm:ss"), message);
+            lock (_logBuffer)
+            {
+                _logBuffer.Add(line);
+                if (_logBuffer.Count > 300) _logBuffer.RemoveAt(0);
+            }
+
+            UpdateUi(() =>
+            {
+                if (_logForm != null && !_logForm.IsDisposed && _logForm.Visible && _logTextBox != null)
+                {
+                    _logTextBox.AppendText(line + Environment.NewLine);
+                }
+            });
+        }
+
+        private void UpdateUi(Action action)
+        {
+            try
+            {
+                _uiContext.Post(_ =>
+                {
+                    try { action(); } catch { }
+                }, null);
+            }
+            catch { }
+        }
+
+        private void ExitAgent()
+        {
+            _isRunning = false;
+            if (_trayIcon != null)
+            {
+                _trayIcon.Visible = false;
+                _trayIcon.Dispose();
+            }
+            if (_logForm != null && !_logForm.IsDisposed)
+            {
+                _logForm.Dispose();
+            }
+            ExitThread();
+        }
+
+        private static bool IsRunAsAdministrator()
+        {
+            try
+            {
+                WindowsIdentity identity = WindowsIdentity.GetCurrent();
+                WindowsPrincipal principal = new WindowsPrincipal(identity);
+                return principal.IsInRole(WindowsBuiltInRole.Administrator);
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -578,7 +1145,6 @@ namespace ITHelpdeskUSBAgent
             Dictionary<string, UsbDeviceRecord> results =
                 new Dictionary<string, UsbDeviceRecord>(StringComparer.OrdinalIgnoreCase);
 
-            // 1. Quét ổ đĩa USB Storage (Win32_DiskDrive có InterfaceType='USB') để lấy cả ký tự ổ đĩa E:, F:
             try
             {
                 using (var searcher = new ManagementObjectSearcher(
@@ -601,8 +1167,8 @@ namespace ITHelpdeskUSBAgent
                             serial = ExtractSerialFromPnpId(pnpId);
                         }
 
-                        string driveLetter = null;
-                        string volumeInfo = null;
+                        string driveLetter;
+                        string volumeInfo;
                         GetDriveLettersAndVolume(drive, out driveLetter, out volumeInfo);
 
                         results[pnpId] = new UsbDeviceRecord
@@ -620,7 +1186,6 @@ namespace ITHelpdeskUSBAgent
             }
             catch { }
 
-            // 2. Quét các thiết bị USB ngoại vi khác từ Win32_PnPEntity
             try
             {
                 using (var searcher = new ManagementObjectSearcher(
@@ -636,7 +1201,6 @@ namespace ITHelpdeskUSBAgent
                         string service = Convert.ToString(entity["Service"] ?? "").Trim().ToUpperInvariant();
                         string pnpClass = Convert.ToString(entity["PNPClass"] ?? "").Trim().ToUpperInvariant();
 
-                        // Bỏ qua các Hub hệ thống nội bộ hoặc Composite container trùng lặp
                         if (upperId.StartsWith("USB\\ROOT_HUB") ||
                             service == "USBHUB" ||
                             service == "USBHUB3" ||
@@ -787,4 +1351,3 @@ namespace ITHelpdeskUSBAgent
         }
     }
 }
-

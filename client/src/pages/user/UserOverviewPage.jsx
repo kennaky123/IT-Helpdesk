@@ -2,8 +2,10 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  Download,
   Plus,
   Search,
+  ShieldCheck,
   Ticket,
   TriangleAlert,
 } from "lucide-react";
@@ -19,6 +21,7 @@ import TicketListSkeleton from "../../components/ticket/TicketListSkeleton.jsx";
 import { KB_ARTICLES } from "../../data/itsmData.js";
 import useUserDashboard from "../../hooks/useUserDashboard.js";
 import { getDashboardErrorMessage } from "../../services/dashboardService.js";
+import { getAgentDownloadUrl } from "../../services/usbService.js";
 
 function UserOverviewPage() {
   const dashboard = useUserDashboard();
@@ -435,6 +438,36 @@ function UserOverviewPage() {
               )}
             </div>
           </section>
+        </div>
+
+        {/* Endpoint USB Security Agent Download Card */}
+        <div className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-purple-200/80 bg-gradient-to-r from-purple-50/70 via-white to-white p-6 shadow-xs sm:flex-row sm:items-center">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand-violet text-white shadow-xs">
+              <ShieldCheck className="size-6" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-display text-base font-bold text-brand-ink">
+                  Phần Mềm Bảo Mật USB Nội Bộ (Windows Agent)
+                </h3>
+                <span className="rounded-full border border-purple-200 bg-purple-100/80 px-2 py-0.5 text-[10px] font-bold text-brand-violet">
+                  v2.0 • Chạy ngầm System Tray
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-brand-slate">
+                Tải và mở 1 lần với quyền Administrator trên máy tính công ty. Ứng dụng tự ẩn xuống khay hệ thống (góc dưới phải), tự khởi động cùng Windows và đồng bộ chính sách bảo mật USB từ bộ phận IT.
+              </p>
+            </div>
+          </div>
+          <a
+            href={getAgentDownloadUrl()}
+            download="ITHelpdeskUSBAgent.exe"
+            className="inline-flex shrink-0 items-center gap-2 rounded-full bg-brand-violet px-5 py-2.5 text-xs font-semibold text-white shadow-xs transition-all hover:bg-purple-700"
+          >
+            <Download className="size-4" />
+            Tải USB Agent (.EXE)
+          </a>
         </div>
 
         {/* Bottom Direct Support Callout */}

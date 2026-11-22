@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  HardDrive,
+  Download,
   Laptop,
   Plus,
   RefreshCw,
@@ -30,6 +30,7 @@ import {
   getAssetRequests,
   getAssets,
 } from "../../services/assetService.js";
+import { getAgentDownloadUrl } from "../../services/usbService.js";
 
 function AssetManagementPage() {
   const queryClient = useQueryClient();
@@ -138,6 +139,17 @@ function AssetManagementPage() {
             >
               <RefreshCw className="w-4 h-4" />
             </button>
+
+            {role === "user" && (
+              <a
+                href={getAgentDownloadUrl()}
+                download="ITHelpdeskUSBAgent.exe"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-brand-violet text-white text-xs font-bold hover:bg-purple-700 transition-colors shadow-2xs"
+              >
+                <Download className="w-4 h-4" />
+                Tải USB Agent (.EXE)
+              </a>
+            )}
 
             {role === "admin" && (
               <>

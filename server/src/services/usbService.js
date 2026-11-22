@@ -150,6 +150,18 @@ export async function recordAgentUsbEvent(payload, requestIp) {
   };
 }
 
+export async function listAgentUsbPolicies() {
+  const devices = await UsbDevice.find({})
+    .select("deviceId deviceName status")
+    .lean();
+
+  return devices.map((item) => ({
+    deviceId: item.deviceId,
+    deviceName: item.deviceName,
+    status: item.status,
+  }));
+}
+
 export async function listUsbDashboardData(query = {}) {
   const deviceFilter = {};
   const eventFilter = {};
