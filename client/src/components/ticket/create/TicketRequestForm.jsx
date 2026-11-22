@@ -1,6 +1,8 @@
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, LoaderCircle, RefreshCw, Send, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { clientEnv } from "../../../config/env.js";
@@ -13,9 +15,8 @@ import {
 } from "../../../services/ticketService.js";
 import {
   PRIORITY_OPTIONS,
+  ticketRequestSchema,
   validateImageFile,
-  validateTicketField,
-  validateTicketForm,
 } from "../../../utils/ticketFormValidation.js";
 import ImageAttachmentField from "./ImageAttachmentField.jsx";
 import { getTroubleshootingGuidesForTicket } from "../../../data/troubleshootingGuides.js";
@@ -67,31 +68,60 @@ function TicketRequestForm() {
     technicians,
     isLoading: techniciansLoading,
   } = useActiveTechnicians(true);
-  const [values, setValues] = useState(INITIAL_VALUES);
-  const [fieldErrors, setFieldErrors] = useState({});
   const [attachmentError, setAttachmentError] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [apiError, setApiError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
   const [showTroubleshootModal, setShowTroubleshootModal] = useState(false);
-  const formRef = useRef(null);
   const apiErrorRef = useRef(null);
   const requestControllerRef = useRef(null);
   const previewUrlsRef = useRef(new Set());
 
+  const {
+    register,
+    control,
+    handleSubmit,
+    setError,
+    getValues,
+    formState: { errors },
+  } = useForm({
+    resolver: zodResolver(ticketRequestSchema),
+    defaultValues: INITIAL_VALUES,
+    mode: "onTouched",
+  });
+
+  const watchedTitle = useWatch({ control, name: "title", defaultValue: "" });
+  const watchedCategory = useWatch({
+    control,
+    name: "category",
+    defaultValue: "",
+  });
+  const watchedPriority = useWatch({
+    control,
+    name: "priority",
+    defaultValue: "medium",
+  });
+  const watchedDescription = useWatch({
+    control,
+    name: "description",
+    defaultValue: "",
+  });
+
   const selectedCategoryObj = useMemo(() => {
-    return categories.find((category) => category.id === values.category) || null;
-  }, [categories, values.category]);
+    return (
+      categories.find((category) => category.id === watchedCategory) || null
+    );
+  }, [categories, watchedCategory]);
 
   const relevantGuides = useMemo(() => {
     if (!selectedCategoryObj) return [];
     return getTroubleshootingGuidesForTicket({
       category: selectedCategoryObj,
-      title: values.title,
-      description: values.description,
+      title: watchedTitle,
+      description: watchedDescription,
     });
-  }, [selectedCategoryObj, values.title, values.description]);
+  }, [selectedCategoryObj, watchedTitle, watchedDescription]);
 
   useEffect(() => {
     const previewUrls = previewUrlsRef.current;
@@ -102,24 +132,6 @@ function TicketRequestForm() {
       previewUrls.clear();
     };
   }, []);
-
-  function handleFieldChange(event) {
-    const { name, value } = event.target;
-    setValues((currentValues) => ({ ...currentValues, [name]: value }));
-    setFieldErrors((currentErrors) => ({
-      ...currentErrors,
-      [name]: "",
-    }));
-    setApiError(null);
-  }
-
-  function handleFieldBlur(event) {
-    const { name, value } = event.target;
-    setFieldErrors((currentErrors) => ({
-      ...currentErrors,
-      [name]: validateTicketField(name, value),
-    }));
-  }
 
   function handleFilesSelected(files) {
     if (files.length === 0) {
@@ -199,35 +211,21 @@ function TicketRequestForm() {
     setAttachmentError("");
   }
 
-  function focusFirstInvalidField() {
-    window.requestAnimationFrame(() => {
-      formRef.current
-        ?.querySelector('[aria-invalid="true"]')
-        ?.focus({ preventScroll: false });
-    });
-  }
-
-  function handleSubmit(event) {
-    event.preventDefault();
-
+  function onValidSubmit(formData) {
     if (isSubmitting) {
       return;
     }
 
-    const nextErrors = validateTicketForm(values);
-
-    if (
-      values.category &&
-      !categories.some((category) => category.id === values.category)
-    ) {
-      nextErrors.category = "Danh mục đã chọn không còn hoạt động.";
-    }
-
-    setFieldErrors(nextErrors);
     setApiError(null);
 
-    if (Object.keys(nextErrors).length > 0) {
-      focusFirstInvalidField();
+    if (
+      formData.category &&
+      !categories.some((category) => category.id === formData.category)
+    ) {
+      setError("category", {
+        type: "manual",
+        message: "Danh mục đã chọn không còn hoạt động.",
+      });
       return;
     }
 
@@ -238,10 +236,11 @@ function TicketRequestForm() {
     }
 
     // Nếu không có hướng dẫn thì gửi trực tiếp
-    executeSubmitTicket();
+    executeSubmitTicket({ formData });
   }
 
-  async function executeSubmitTicket({ confirmedNewIssue = false } = {}) {
+  async function executeSubmitTicket({ confirmedNewIssue = false, formData } = {}) {
+    const payload = formData ?? getValues();
     const abortController = new AbortController();
     requestControllerRef.current = abortController;
     setIsSubmitting(true);
@@ -249,12 +248,12 @@ function TicketRequestForm() {
 
     // Nếu người dùng đã thử khắc phục theo danh mục nhưng chưa hết lỗi, gắn thêm ghi chú rõ ràng
     const finalDescription = confirmedNewIssue
-      ? `[Đã tự thử kiểm tra theo hướng dẫn danh mục "${selectedCategoryObj?.name || ""}" nhưng chưa hết lỗi]\n\n${values.description}`
-      : values.description;
+      ? `[Đã tự thử kiểm tra theo hướng dẫn danh mục "${selectedCategoryObj?.name || ""}" nhưng chưa hết lỗi]\n\n${payload.description}`
+      : payload.description;
 
     try {
       const result = await createTicket(
-        { ...values, description: finalDescription, attachments },
+        { ...payload, description: finalDescription, attachments },
         {
           signal: abortController.signal,
           onUploadProgress: (progressEvent) => {
@@ -307,7 +306,7 @@ function TicketRequestForm() {
 
   function handleConfirmSendToHelpDesk() {
     setShowTroubleshootModal(false);
-    executeSubmitTicket({ confirmedNewIssue: true });
+    executeSubmitTicket({ confirmedNewIssue: true, formData: getValues() });
   }
 
   const categoryErrorMessage = categoryError
@@ -318,10 +317,9 @@ function TicketRequestForm() {
 
   return (
     <form
-      ref={formRef}
       noValidate
       aria-busy={isSubmitting}
-      onSubmit={handleSubmit}
+      onSubmit={(event) => handleSubmit(onValidSubmit)(event)}
       className="overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs"
     >
       <fieldset disabled={isSubmitting} className="space-y-5 p-5 sm:p-6">
@@ -337,27 +335,24 @@ function TicketRequestForm() {
           </label>
           <input
             id="ticket-title"
-            name="title"
             type="text"
-            value={values.title}
             maxLength={200}
             autoComplete="off"
             placeholder="VD: Không truy cập được VPN công ty từ nhà..."
-            className={`${inputClassName} ${fieldErrors.title ? "border-red-400 focus:border-red-500" : ""}`}
-            aria-invalid={Boolean(fieldErrors.title)}
-            aria-describedby={`ticket-title-hint ticket-title-count${fieldErrors.title ? " ticket-title-error" : ""}`}
-            onChange={handleFieldChange}
-            onBlur={handleFieldBlur}
+            className={`${inputClassName} ${errors.title ? "border-red-400 focus:border-red-500" : ""}`}
+            aria-invalid={Boolean(errors.title)}
+            aria-describedby={`ticket-title-hint ticket-title-count${errors.title ? " ticket-title-error" : ""}`}
+            {...register("title", { onChange: () => setApiError(null) })}
           />
           <div className="mt-1 flex items-start justify-between gap-3 text-[11px] text-brand-ash">
             <p id="ticket-title-hint">Tóm tắt ngắn gọn sự cố bạn đang gặp.</p>
             <span id="ticket-title-count" className="shrink-0 font-mono">
-              {values.title.length}/200
+              {watchedTitle.length}/200
             </span>
           </div>
-          {fieldErrors.title ? (
+          {errors.title ? (
             <p id="ticket-title-error" className="mt-1 text-xs text-red-600">
-              {fieldErrors.title}
+              {errors.title.message}
             </p>
           ) : null}
         </div>
@@ -373,16 +368,13 @@ function TicketRequestForm() {
             </label>
             <select
               id="ticket-category"
-              name="category"
-              value={values.category}
               disabled={isSubmitting || categoryUnavailable}
-              className={`${inputClassName} font-medium ${fieldErrors.category ? "border-red-400 focus:border-red-500" : ""}`}
-              aria-invalid={Boolean(fieldErrors.category)}
+              className={`${inputClassName} font-medium ${errors.category ? "border-red-400 focus:border-red-500" : ""}`}
+              aria-invalid={Boolean(errors.category)}
               aria-describedby={
-                fieldErrors.category ? "ticket-category-error" : undefined
+                errors.category ? "ticket-category-error" : undefined
               }
-              onChange={handleFieldChange}
-              onBlur={handleFieldBlur}
+              {...register("category", { onChange: () => setApiError(null) })}
             >
               <option value="">
                 {isLoading ? "Đang tải danh mục..." : "Chọn danh mục"}
@@ -393,12 +385,12 @@ function TicketRequestForm() {
                 </option>
               ))}
             </select>
-            {fieldErrors.category ? (
+            {errors.category ? (
               <p
                 id="ticket-category-error"
                 className="mt-1 text-xs text-red-600"
               >
-                {fieldErrors.category}
+                {errors.category.message}
               </p>
             ) : null}
             {categoryErrorMessage ? (
@@ -434,13 +426,10 @@ function TicketRequestForm() {
             </label>
             <select
               id="ticket-priority"
-              name="priority"
-              value={values.priority}
-              className={`${inputClassName} font-medium ${fieldErrors.priority ? "border-red-400 focus:border-red-500" : ""}`}
-              aria-invalid={Boolean(fieldErrors.priority)}
+              className={`${inputClassName} font-medium ${errors.priority ? "border-red-400 focus:border-red-500" : ""}`}
+              aria-invalid={Boolean(errors.priority)}
               aria-describedby="ticket-priority-hint"
-              onChange={handleFieldChange}
-              onBlur={handleFieldBlur}
+              {...register("priority", { onChange: () => setApiError(null) })}
             >
               {PRIORITY_OPTIONS.map((priority) => (
                 <option key={priority.value} value={priority.value}>
@@ -454,7 +443,7 @@ function TicketRequestForm() {
             >
               {
                 PRIORITY_OPTIONS.find(
-                  (priority) => priority.value === values.priority,
+                  (priority) => priority.value === watchedPriority,
                 )?.description
               }
             </p>
@@ -472,11 +461,11 @@ function TicketRequestForm() {
             </label>
             <select
               id="ticket-technician"
-              name="technicianId"
-              value={values.technicianId}
               disabled={isSubmitting || techniciansLoading}
               className={`${inputClassName} font-medium`}
-              onChange={handleFieldChange}
+              {...register("technicianId", {
+                onChange: () => setApiError(null),
+              })}
             >
               <option value="">
                 {techniciansLoading
@@ -534,16 +523,13 @@ function TicketRequestForm() {
           </label>
           <textarea
             id="ticket-description"
-            name="description"
-            value={values.description}
             rows={6}
             maxLength={5000}
             placeholder="Mô tả chi tiết mã lỗi, thời điểm xảy ra hoặc đính kèm ID UltraViewer/TeamViewer nếu cần hỗ trợ từ xa..."
-            className={`${inputClassName} min-h-36 resize-y ${fieldErrors.description ? "border-red-400 focus:border-red-500" : ""}`}
-            aria-invalid={Boolean(fieldErrors.description)}
-            aria-describedby={`ticket-description-hint ticket-description-count${fieldErrors.description ? " ticket-description-error" : ""}`}
-            onChange={handleFieldChange}
-            onBlur={handleFieldBlur}
+            className={`${inputClassName} min-h-36 resize-y ${errors.description ? "border-red-400 focus:border-red-500" : ""}`}
+            aria-invalid={Boolean(errors.description)}
+            aria-describedby={`ticket-description-hint ticket-description-count${errors.description ? " ticket-description-error" : ""}`}
+            {...register("description", { onChange: () => setApiError(null) })}
           />
           <div className="mt-1 flex items-start justify-between gap-3 text-[11px] text-brand-ash">
             <p id="ticket-description-hint">
@@ -553,15 +539,15 @@ function TicketRequestForm() {
               id="ticket-description-count"
               className="shrink-0 font-mono"
             >
-              {values.description.length}/5000
+              {watchedDescription.length}/5000
             </span>
           </div>
-          {fieldErrors.description ? (
+          {errors.description ? (
             <p
               id="ticket-description-error"
               className="mt-1 text-xs text-red-600"
             >
-              {fieldErrors.description}
+              {errors.description.message}
             </p>
           ) : null}
         </div>
@@ -635,7 +621,7 @@ function TicketRequestForm() {
         <TroubleshootingConfirmationModal
           categoryName={selectedCategoryObj?.name || "Sự cố kỹ thuật"}
           guides={relevantGuides}
-          ticketTitle={values.title}
+          ticketTitle={watchedTitle}
           isSubmitting={isSubmitting}
           onClose={() => setShowTroubleshootModal(false)}
           onSelfResolved={handleSelfResolved}

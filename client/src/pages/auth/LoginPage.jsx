@@ -1,3 +1,4 @@
+import { zodResolver } from "@hookform/resolvers/zod";
 import {
   CheckCircle2,
   Eye,
@@ -9,63 +10,35 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
 import {
   Link,
   Navigate,
   useLocation,
   useNavigate,
 } from "react-router-dom";
+import { z } from "zod";
 import AuthLoadingScreen from "../../components/auth/AuthLoadingScreen.jsx";
 import { getDefaultPathForRole } from "../../constants/roles.js";
 import useAuth from "../../hooks/useAuth.js";
 import { getLoginError } from "../../services/authService.js";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const loginSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .min(1, "Email là bắt buộc.")
+    .max(254, "Email không đúng định dạng.")
+    .email("Email không đúng định dạng."),
+  password: z.string().min(1, "Mật khẩu là bắt buộc."),
+  rememberMe: z.boolean().default(false),
+});
 
 const ROLE_PATH_PREFIXES = {
   user: "/user/",
   technician: "/technician/",
   admin: "/admin/",
 };
-
-function validateField(fieldName, value) {
-  if (fieldName === "email") {
-    const normalizedEmail = value.trim();
-
-    if (!normalizedEmail) {
-      return "Email là bắt buộc.";
-    }
-
-    if (
-      normalizedEmail.length > 254 ||
-      !EMAIL_PATTERN.test(normalizedEmail)
-    ) {
-      return "Email không đúng định dạng.";
-    }
-  }
-
-  if (fieldName === "password" && value.length === 0) {
-    return "Mật khẩu là bắt buộc.";
-  }
-
-  return "";
-}
-
-function validateForm(formValues) {
-  const errors = {};
-  const emailError = validateField("email", formValues.email);
-  const passwordError = validateField("password", formValues.password);
-
-  if (emailError) {
-    errors.email = emailError;
-  }
-
-  if (passwordError) {
-    errors.password = passwordError;
-  }
-
-  return errors;
-}
 
 function getRedirectPath(role, previousLocation) {
   const defaultPath = getDefaultPathForRole(role);
@@ -75,7 +48,6 @@ function getRedirectPath(role, previousLocation) {
   if (
     !pathname ||
     (pathname !== "/profile" &&
-      pathname !== "/topology" &&
       !pathname.startsWith(allowedPrefix))
   ) {
     return defaultPath;
@@ -87,21 +59,25 @@ function getRedirectPath(role, previousLocation) {
 }
 
 function LoginPage() {
-  const [formValues, setFormValues] = useState({
-    email: "",
-    password: "",
-  });
-  const [fieldErrors, setFieldErrors] = useState({});
   const [apiError, setApiError] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const { isAuthenticated, isLoading, login, user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const emailInputRef = useRef(null);
-  const passwordInputRef = useRef(null);
   const apiErrorRef = useRef(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+      rememberMe: false,
+    },
+  });
 
   useEffect(() => {
     document.title = "Đăng nhập | DeskPro IT — AIOps v3.0";
@@ -115,60 +91,14 @@ function LoginPage() {
     return <Navigate to={getDefaultPathForRole(user.role)} replace />;
   }
 
-  function handleInputChange(event) {
-    const { name, value } = event.target;
-
-    setFormValues((currentValues) => ({
-      ...currentValues,
-      [name]: value,
-    }));
+  async function onValidSubmit(values) {
     setApiError(null);
-
-    if (Object.hasOwn(fieldErrors, name)) {
-      const nextError = validateField(name, value);
-
-      setFieldErrors((currentErrors) => {
-        const nextErrors = { ...currentErrors };
-
-        if (nextError) {
-          nextErrors[name] = nextError;
-        } else {
-          delete nextErrors[name];
-        }
-
-        return nextErrors;
-      });
-    }
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-
-    if (isSubmitting) {
-      return;
-    }
-
-    const validationErrors = validateForm(formValues);
-    setFieldErrors(validationErrors);
-    setApiError(null);
-
-    if (Object.keys(validationErrors).length > 0) {
-      if (validationErrors.email) {
-        emailInputRef.current?.focus();
-      } else {
-        passwordInputRef.current?.focus();
-      }
-
-      return;
-    }
-
-    setIsSubmitting(true);
 
     try {
       const authenticatedUser = await login({
-        email: formValues.email.trim().toLowerCase(),
-        password: formValues.password,
-        rememberMe,
+        email: values.email.trim().toLowerCase(),
+        password: values.password,
+        rememberMe: values.rememberMe,
       });
       const redirectPath = getRedirectPath(
         authenticatedUser.role,
@@ -179,20 +109,18 @@ function LoginPage() {
     } catch (error) {
       setApiError(getLoginError(error));
       window.requestAnimationFrame(() => apiErrorRef.current?.focus());
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
   const emailInputClasses = [
     "h-11 w-full rounded-xl border bg-brand-mist pr-4 pl-10 text-sm text-brand-ink outline-none transition placeholder:text-brand-ash focus:bg-white disabled:cursor-not-allowed disabled:opacity-60",
-    fieldErrors.email
+    errors.email
       ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100"
       : "border-brand-bone focus:border-brand-violet focus:ring-2 focus:ring-brand-violet/20",
   ].join(" ");
   const passwordInputClasses = [
     "h-11 w-full rounded-xl border bg-brand-mist pr-11 pl-10 text-sm text-brand-ink outline-none transition placeholder:text-brand-ash focus:bg-white disabled:cursor-not-allowed disabled:opacity-60",
-    fieldErrors.password
+    errors.password
       ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100"
       : "border-brand-bone focus:border-brand-violet focus:ring-2 focus:ring-brand-violet/20",
   ].join(" ");
@@ -233,7 +161,7 @@ function LoginPage() {
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              Enterprise ITSM, Network Topology &amp; Data Warehouse
+              Enterprise ITSM, Asset &amp; Ticket Platform
             </p>
           </div>
         </div>
@@ -249,11 +177,11 @@ function LoginPage() {
             Hệ thống quản lý sự cố &amp; hạ tầng CNTT chuẩn ITIL v4
           </span>
           <h2 className="mt-4 font-display text-4xl leading-tight font-extrabold tracking-tight xl:text-5xl">
-            Điều phối sự cố, giám sát mạng &amp; phân tích BI hợp nhất.
+            Điều phối sự cố, quản lý tài sản &amp; phân tích BI hợp nhất.
           </h2>
           <p className="mt-4 max-w-lg text-sm leading-6 text-slate-300">
             Kết nối Cổng tự phục vụ nhân viên, Bàn làm việc 3 cột của kỹ thuật
-            viên, Sơ đồ mạng Campus và Hệ thống phân tích dữ liệu PostgreSQL trên một nền
+            viên, Quản lý tài sản CMDB và Hệ thống phân tích dữ liệu PostgreSQL trên một nền
             tảng duy nhất.
           </p>
 
@@ -261,7 +189,7 @@ function LoginPage() {
             {[
               "Hàng đợi Ticket mật độ cao với cảnh báo SLA P1–P4 thời gian thực",
               "Bàn làm việc 3 cột tích hợp CMDB thiết bị & Canned Responses",
-              "Bản đồ mạng Campus tương tác & Thống kê vận hành PostgreSQL",
+              "Quản lý kho thiết bị, bản quyền phần mềm & bảo mật USB DLP",
             ].map((item) => (
               <li key={item} className="flex items-center gap-2.5">
                 <CheckCircle2
@@ -323,7 +251,7 @@ function LoginPage() {
 
             <form
               className="mt-6 space-y-4"
-              onSubmit={handleSubmit}
+              onSubmit={(event) => handleSubmit(onValidSubmit)(event)}
               noValidate
               aria-busy={isSubmitting}
             >
@@ -358,12 +286,8 @@ function LoginPage() {
                     aria-hidden="true"
                   />
                   <input
-                    ref={emailInputRef}
                     id="email"
-                    name="email"
                     type="email"
-                    value={formValues.email}
-                    onChange={handleInputChange}
                     className={emailInputClasses}
                     placeholder="tenban@congty.com"
                     autoComplete="username"
@@ -372,15 +296,16 @@ function LoginPage() {
                     spellCheck={false}
                     maxLength={254}
                     disabled={isSubmitting}
-                    aria-invalid={Boolean(fieldErrors.email)}
-                    aria-describedby={
-                      fieldErrors.email ? "email-error" : undefined
-                    }
+                    aria-invalid={Boolean(errors.email)}
+                    aria-describedby={errors.email ? "email-error" : undefined}
+                    {...register("email", {
+                      onChange: () => setApiError(null),
+                    })}
                   />
                 </div>
-                {fieldErrors.email ? (
+                {errors.email ? (
                   <p id="email-error" className="mt-1 text-xs text-red-600">
-                    {fieldErrors.email}
+                    {errors.email.message}
                   </p>
                 ) : null}
               </div>
@@ -398,20 +323,19 @@ function LoginPage() {
                     aria-hidden="true"
                   />
                   <input
-                    ref={passwordInputRef}
                     id="password"
-                    name="password"
                     type={showPassword ? "text" : "password"}
-                    value={formValues.password}
-                    onChange={handleInputChange}
                     className={passwordInputClasses}
                     placeholder="Nhập mật khẩu"
                     autoComplete="current-password"
                     disabled={isSubmitting}
-                    aria-invalid={Boolean(fieldErrors.password)}
+                    aria-invalid={Boolean(errors.password)}
                     aria-describedby={
-                      fieldErrors.password ? "password-error" : undefined
+                      errors.password ? "password-error" : undefined
                     }
+                    {...register("password", {
+                      onChange: () => setApiError(null),
+                    })}
                   />
                   <button
                     type="button"
@@ -432,9 +356,9 @@ function LoginPage() {
                     )}
                   </button>
                 </div>
-                {fieldErrors.password ? (
+                {errors.password ? (
                   <p id="password-error" className="mt-1 text-xs text-red-600">
-                    {fieldErrors.password}
+                    {errors.password.message}
                   </p>
                 ) : null}
               </div>
@@ -443,10 +367,9 @@ function LoginPage() {
                 <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-brand-slate">
                   <input
                     type="checkbox"
-                    checked={rememberMe}
-                    onChange={(event) => setRememberMe(event.target.checked)}
                     className="size-3.5 rounded border-brand-ash accent-brand-violet"
                     disabled={isSubmitting}
+                    {...register("rememberMe")}
                   />
                   Duy trì đăng nhập
                 </label>

@@ -1,41 +1,58 @@
-import { useEffect, useState } from "react";
-import { Check, ShieldCheck, User, Users, X } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Laptop, ShieldCheck, Users, X } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "react-toastify";
+import { getAssets } from "../../services/assetService.js";
 import { allocateLicense } from "../../services/softwareService.js";
-import { getAssignableEmployees } from "../../services/assetService.js";
+import { Badge } from "../ui/badge.jsx";
 
 function AllocateLicenseModal({ license, onClose, onAllocated }) {
-  const [employees, setEmployees] = useState([]);
+  const queryClient = useQueryClient();
   const [selectedUserId, setSelectedUserId] = useState("");
   const [note, setNote] = useState("");
-  const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    getAssignableEmployees({ signal: controller.signal })
-      .then(setEmployees)
-      .catch((error) => {
-        if (error.code !== "ERR_CANCELED") {
-          toast.error("Không thể tải danh sách nhân viên.");
-        }
-      })
-      .finally(() => setIsLoadingEmployees(false));
-    return () => controller.abort();
-  }, []);
+  const { data: inUseAssetData, isLoading: isLoadingEmployees } = useQuery({
+    queryKey: ["assets", "list", { status: "in_use" }],
+    queryFn: ({ signal }) => getAssets({ status: "in_use" }, { signal }),
+  });
+
+  const activeMachineEmployees = useMemo(() => {
+    const byUser = new Map();
+    for (const asset of inUseAssetData?.assets ?? []) {
+      const emp = asset.assignedTo;
+      if (!emp?._id) continue;
+      const entry = byUser.get(emp._id) ?? {
+        ...emp,
+        devices: [],
+      };
+      entry.devices.push({
+        _id: asset._id,
+        assetTag: asset.assetTag,
+        name: asset.name,
+        type: asset.type,
+      });
+      byUser.set(emp._id, entry);
+    }
+    return Array.from(byUser.values()).sort((a, b) =>
+      (a.fullName || "").localeCompare(b.fullName || "", "vi"),
+    );
+  }, [inUseAssetData?.assets]);
 
   const assignedUserIds = new Set(
     (license?.assignedUsers || []).map((entry) =>
-      typeof entry.user === "object" ? entry.user?._id : entry.user
-    )
+      typeof entry.user === "object" ? entry.user?._id : entry.user,
+    ),
   );
 
-  const availableEmployees = employees.filter((emp) => !assignedUserIds.has(emp._id));
+  const availableEmployees = activeMachineEmployees.filter(
+    (emp) => !assignedUserIds.has(emp._id),
+  );
 
   async function handleSubmit(e) {
     e.preventDefault();
     if (!selectedUserId) {
-      toast.warning("Vui lòng chọn nhân viên tiếp nhận bản quyền.");
+      toast.warning("Vui lòng chọn nhân viên đang sử dụng máy công ty.");
       return;
     }
 
@@ -45,6 +62,7 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
         userId: selectedUserId,
         note: note.trim() || undefined,
       });
+      queryClient.invalidateQueries({ queryKey: ["software"] });
       toast.success(`Đã cấp phát bản quyền ${license.name} thành công!`);
       onAllocated?.(updated);
       onClose();
@@ -58,12 +76,12 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
   const remainingSeats =
     license.availableSeats !== undefined
       ? license.availableSeats
-      : Math.max(0, (license.totalSeats || 0) - (license.assignedUsers?.length || 0));
+      : Math.max(0, (license.totalSeats || 0) - assignedUserIds.size);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in">
-      <div className="w-full max-w-lg bg-white rounded-2xl border border-brand-bone shadow-xl overflow-hidden">
-        <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50">
+      <div className="w-full max-w-xl bg-white rounded-2xl border border-brand-bone shadow-xl overflow-hidden max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100 text-brand-violet">
               <ShieldCheck className="w-5 h-5" />
@@ -73,7 +91,7 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
                 Cấp Phát Bản Quyền Phần Mềm
               </h2>
               <p className="text-xs text-brand-slate">
-                Gán tài khoản/license seat cho nhân viên công ty
+                Hiển thị nhân viên đang sử dụng máy công ty (tự loại khi thu hồi máy)
               </p>
             </div>
           </div>
@@ -81,12 +99,13 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
             type="button"
             onClick={onClose}
             className="p-1 rounded-lg text-brand-slate hover:text-brand-ink hover:bg-brand-mist transition-colors"
+            aria-label="Đóng"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+        <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto">
           {/* Software Info Card */}
           <div className="rounded-xl border border-brand-bone bg-brand-mist/60 p-3.5 space-y-1.5 text-xs">
             <div className="flex justify-between">
@@ -108,6 +127,75 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
             </div>
           </div>
 
+          {/* All employees currently using company computers */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-brand-onyx flex items-center gap-1.5">
+                <Laptop className="w-3.5 h-3.5 text-brand-violet" />
+                Nhân viên đang sử dụng máy công ty ({activeMachineEmployees.length})
+              </span>
+              <span className="text-[11px] text-brand-ash">
+                Thu hồi máy sẽ tự động xóa khỏi danh sách
+              </span>
+            </div>
+
+            {isLoadingEmployees ? (
+              <div className="h-12 flex items-center justify-center bg-brand-mist/40 rounded-xl text-xs text-brand-slate border border-brand-bone">
+                Đang đồng bộ danh sách máy đang sử dụng...
+              </div>
+            ) : activeMachineEmployees.length === 0 ? (
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-800">
+                Hiện chưa có nhân viên nào đang giữ máy của công ty (hoặc tất cả máy đã bị thu hồi).
+              </div>
+            ) : (
+              <div className="max-h-44 overflow-y-auto divide-y divide-brand-bone rounded-xl border border-brand-bone bg-white">
+                {activeMachineEmployees.map((emp) => {
+                  const isAssigned = assignedUserIds.has(emp._id);
+                  const isSelected = selectedUserId === emp._id;
+                  return (
+                    <div
+                      key={emp._id}
+                      className={`flex items-center justify-between gap-2 px-3 py-2 text-xs transition-colors ${
+                        isSelected ? "bg-purple-50/80" : "hover:bg-brand-mist/40"
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="font-semibold text-brand-ink truncate">
+                          {emp.fullName}{" "}
+                          <span className="font-normal text-brand-ash">
+                            ({emp.department || "Nhân viên"})
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-mono text-brand-slate truncate">
+                          {emp.devices
+                            .map((d) => `${d.assetTag} • ${d.name}`)
+                            .join(", ")}
+                        </div>
+                      </div>
+                      {isAssigned ? (
+                        <Badge variant="emerald" className="shrink-0 text-[10px]">
+                          Đã cấp bản quyền
+                        </Badge>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedUserId(emp._id)}
+                          className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border transition ${
+                            isSelected
+                              ? "border-brand-violet bg-brand-violet text-white"
+                              : "border-purple-200 bg-purple-50 text-brand-violet hover:bg-purple-100"
+                          }`}
+                        >
+                          {isSelected ? "Đang chọn" : "Chọn cấp"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-brand-onyx mb-1">
               Chọn nhân viên tiếp nhận bản quyền <span className="text-red-500">*</span>
@@ -118,7 +206,7 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
               </div>
             ) : availableEmployees.length === 0 ? (
               <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-700">
-                Tất cả nhân viên đủ điều kiện hiện đã được cấp bản quyền này hoặc danh sách rỗng.
+                Tất cả nhân viên đang sử dụng máy công ty đều đã được cấp bản quyền này hoặc chưa có máy nào đang cấp phát.
               </div>
             ) : (
               <select
@@ -127,10 +215,11 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
                 required
                 className="w-full text-xs rounded-xl border border-brand-bone px-3 py-2.5 bg-white text-brand-onyx focus:ring-2 focus:ring-brand-violet/20 focus:border-brand-violet outline-hidden"
               >
-                <option value="">-- Chọn nhân viên --</option>
+                <option value="">-- Chọn nhân viên đang dùng máy công ty --</option>
                 {availableEmployees.map((emp) => (
                   <option key={emp._id} value={emp._id}>
-                    {emp.fullName} ({emp.email}) - {emp.department || "Nhân viên"}
+                    {emp.fullName} ({emp.email}) — Đang dùng:{" "}
+                    {emp.devices.map((d) => d.assetTag).join(", ")}
                   </option>
                 ))}
               </select>
@@ -142,10 +231,10 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
               Ghi chú cấp phát (tùy chọn)
             </label>
             <textarea
-              rows={3}
+              rows={2}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="VD: Phục vụ dự án thiết kế UI/UX Q4, account SSO công ty..."
+              placeholder="VD: Phục vụ công việc trên máy công ty được cấp..."
               className="w-full text-xs rounded-xl border border-brand-bone p-3 bg-white text-brand-onyx focus:ring-2 focus:ring-brand-violet/20 focus:border-brand-violet outline-hidden resize-none"
             />
           </div>
@@ -175,4 +264,3 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
 }
 
 export default AllocateLicenseModal;
-

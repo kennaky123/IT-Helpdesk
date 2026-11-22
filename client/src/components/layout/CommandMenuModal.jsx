@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Compass, Cpu, FileText, Search } from "lucide-react";
+import { Compass, FileText, Search } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import { getNavigationForRole } from "../../constants/navigation.js";
-import { KB_ARTICLES, NETWORK_NODES } from "../../data/itsmData.js";
+import { KB_ARTICLES } from "../../data/itsmData.js";
 import useAuth from "../../hooks/useAuth.js";
 
 function CommandMenuModal({ open, onClose }) {
@@ -36,17 +36,6 @@ function CommandMenuModal({ open, onClose }) {
       (item) => !q || item.label.toLowerCase().includes(q),
     );
   }, [navItems, query]);
-
-  const filteredNodes = useMemo(() => {
-    const q = query.toLowerCase().trim();
-    return Object.values(NETWORK_NODES).filter(
-      (n) =>
-        !q ||
-        n.name.toLowerCase().includes(q) ||
-        n.ip.toLowerCase().includes(q) ||
-        n.model.toLowerCase().includes(q),
-    );
-  }, [query]);
 
   const filteredKb = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -133,41 +122,6 @@ function CommandMenuModal({ open, onClose }) {
             </div>
           ) : null}
 
-          {filteredNodes.length > 0 ? (
-            <div className="py-1.5">
-              <div className="px-2.5 pb-1 text-[10px] font-mono font-bold uppercase tracking-wider text-brand-ash">
-                Thiết bị hạ tầng mạng (Topology)
-              </div>
-              {filteredNodes.slice(0, 4).map((node) => (
-                <button
-                  key={node.id}
-                  type="button"
-                  onClick={() => handleSelectPath("/topology")}
-                  className="w-full p-2 hover:bg-brand-mist rounded-lg cursor-pointer flex items-center justify-between text-left transition-colors"
-                >
-                  <div className="min-w-0">
-                    <div className="font-semibold text-brand-ink flex items-center gap-1.5">
-                      <Cpu className="w-3.5 h-3.5 text-brand-blue shrink-0" />
-                      <span className="truncate">{node.name}</span>
-                    </div>
-                    <div className="text-[10px] text-brand-ash font-mono pl-5">
-                      {node.model} • {node.ip}
-                    </div>
-                  </div>
-                  <span
-                    className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold ${
-                      node.status === "warning"
-                        ? "bg-amber-100 text-amber-800"
-                        : "bg-emerald-100 text-emerald-800"
-                    }`}
-                  >
-                    {node.status === "warning" ? "Cảnh báo" : "Online"}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-
           {filteredKb.length > 0 ? (
             <div className="py-1.5">
               <div className="px-2.5 pb-1 text-[10px] font-mono font-bold uppercase tracking-wider text-brand-ash">
@@ -179,7 +133,11 @@ function CommandMenuModal({ open, onClose }) {
                   type="button"
                   onClick={() =>
                     handleSelectPath(
-                      user?.role === "user" ? "/user/overview" : "/topology",
+                      user?.role === "user"
+                        ? "/user/overview"
+                        : user?.role === "technician"
+                          ? "/technician/overview"
+                          : "/admin/dashboard",
                     )
                   }
                   className="w-full p-2 hover:bg-brand-mist rounded-lg cursor-pointer flex items-center justify-between text-left transition-colors"

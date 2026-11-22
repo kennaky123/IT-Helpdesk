@@ -14,7 +14,6 @@ import { useUiStore } from "../stores/useUiStore.js";
 
 const SPECIAL_PAGE_TITLES = {
   "/profile": "Hồ sơ cá nhân",
-  "/topology": "Mô Hình Mạng (Topology)",
   "/unauthorized": "Không có quyền truy cập",
 };
 
@@ -29,7 +28,7 @@ function getSpecialPageTitle(pathname) {
 }
 
 function isFullBleedWorkspace(pathname) {
-  if (pathname === "/topology" || pathname === "/user/overview") {
+  if (pathname === "/user/overview") {
     return true;
   }
   if (

@@ -44,7 +44,6 @@ const AdminReportsPage = lazy(() => import("../pages/admin/AdminReportsPage.jsx"
 const AssetManagementPage = lazy(() => import("../pages/admin/AssetManagementPage.jsx"));
 const SoftwareLicensePage = lazy(() => import("../pages/admin/SoftwareLicensePage.jsx"));
 const UsbSecurityPage = lazy(() => import("../pages/admin/UsbSecurityPage.jsx"));
-const NetworkTopologyPage = lazy(() => import("../pages/NetworkTopologyPage.jsx"));
 
 function StandardPageRoute({ children }) {
   return <Suspense fallback={<TicketListSkeleton />}>{children}</Suspense>;
@@ -118,10 +117,6 @@ function AppRoutes() {
           <Route
             path="profile"
             element={<StandardPageRoute><ProfilePage /></StandardPageRoute>}
-          />
-          <Route
-            path="topology"
-            element={<StandardPageRoute><NetworkTopologyPage /></StandardPageRoute>}
           />
 
           <Route element={<RoleRoute allowedRoles={["user"]} />}>

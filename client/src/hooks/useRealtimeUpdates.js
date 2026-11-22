@@ -11,7 +11,7 @@ const RESOURCE_QUERY_PREFIXES = {
   categories: [["categories"], ["tickets", "filter-options"]],
   users: [["technicians"], ["admin", "users"], ["tickets", "filter-options"], ["dashboard"]],
   admin: [["admin"], ["categories"], ["technicians"], ["tickets", "filter-options"], ["dashboard"]],
-  assets: [["assets"], ["dashboard"]],
+  assets: [["assets"], ["software"], ["dashboard"]],
   software: [["software"], ["dashboard"]],
   usb: [["usb"], ["dashboard"]],
 };

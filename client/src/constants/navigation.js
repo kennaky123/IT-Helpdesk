@@ -9,7 +9,6 @@ import {
   Laptop,
   LayoutDashboard,
   Layers,
-  Network,
   Tags,
   Usb,
   UserCog,
@@ -39,14 +38,6 @@ export const NAVIGATION_BY_ROLE = {
       path: "/user/tickets/new",
       icon: CirclePlus,
       iconColor: "text-emerald-600",
-      end: true,
-    },
-    {
-      label: "Mô Hình Mạng",
-      path: "/topology",
-      icon: Network,
-      iconColor: "text-brand-blue",
-      alertDot: true,
       end: true,
     },
     {
@@ -96,14 +87,6 @@ export const NAVIGATION_BY_ROLE = {
       label: "Lịch Sử Xử Lý",
       path: "/technician/history",
       icon: History,
-      end: true,
-    },
-    {
-      label: "Mô Hình Mạng",
-      path: "/topology",
-      icon: Network,
-      iconColor: "text-brand-blue",
-      alertDot: true,
       end: true,
     },
     {
@@ -164,14 +147,6 @@ export const NAVIGATION_BY_ROLE = {
       path: "/admin/dashboard",
       icon: BarChart3,
       iconColor: "text-emerald-600",
-      end: true,
-    },
-    {
-      label: "Mô Hình Mạng",
-      path: "/topology",
-      icon: Network,
-      iconColor: "text-brand-blue",
-      alertDot: true,
       end: true,
     },
     {

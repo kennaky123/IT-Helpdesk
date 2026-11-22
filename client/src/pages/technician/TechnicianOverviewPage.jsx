@@ -2,7 +2,6 @@ import {
   CheckCircle2,
   CircleGauge,
   Clock3,
-  Network,
   Ticket,
   TriangleAlert,
 } from "lucide-react";
@@ -26,14 +25,14 @@ function TechnicianOverviewPage() {
       <WorkspacePageHeader
         eyebrow="Kỹ thuật viên DeskPro IT"
         title="Bàn Làm Việc Kỹ Thuật (Agent Workspace)"
-        description="Theo dõi các ticket đang được phân công cho bạn, thời hạn SLA và trạng thái hạ tầng mạng."
+        description="Theo dõi các ticket đang được phân công cho bạn và thời hạn SLA."
         actions={
           <Link
-            to="/topology"
+            to="/technician/tickets/assigned"
             className="inline-flex items-center gap-2 rounded-full border border-brand-bone bg-white px-4 py-2 text-xs font-semibold text-brand-ink shadow-2xs transition hover:border-brand-violet hover:text-brand-violet"
           >
-            <Network className="size-3.5 text-brand-violet" />
-            Sơ Đồ Mạng Campus
+            <Ticket className="size-3.5 text-brand-violet" />
+            Hàng Đợi Được Giao
           </Link>
         }
       />
@@ -173,25 +172,6 @@ function TechnicianDashboardContent({ dashboard }) {
               </strong>{" "}
               ticket được phân công trong tháng.
             </p>
-          </section>
-
-          <section className="rounded-xl border border-brand-bone bg-brand-onyx p-5 text-white shadow-xs">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-brand-mint" />
-              <h2 className="font-display text-sm font-bold">
-                AIOps Infrastructure Intelligence
-              </h2>
-            </div>
-            <p className="mt-2 text-xs leading-5 text-slate-300">
-              Kiểm tra trực tiếp sơ đồ mạng Campus, trạng thái Switch/AP và
-              xử lý hàng loạt các sự cố hạ tầng.
-            </p>
-            <Link
-              to="/topology"
-              className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-brand-violet px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-brand-violet/90"
-            >
-              Mở Bản Đồ Mạng →
-            </Link>
           </section>
         </aside>
       </div>

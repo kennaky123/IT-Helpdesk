@@ -244,7 +244,7 @@ function AdminTicketsPage() {
                 : "Chưa có"}
             </span>
             <Link
-              to="/topology"
+              to="/admin/reports"
               className="text-xs font-semibold text-brand-violet hover:underline"
             >
               {queueMetrics.ratingCount} đánh giá →

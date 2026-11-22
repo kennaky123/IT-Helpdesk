@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export const PRIORITY_OPTIONS = Object.freeze([
   {
     value: "low",
@@ -21,58 +23,23 @@ export const PRIORITY_OPTIONS = Object.freeze([
   },
 ]);
 
-const VALID_PRIORITIES = new Set(
-  PRIORITY_OPTIONS.map((priority) => priority.value),
-);
-
-export function validateTicketField(name, value) {
-  const normalizedValue = typeof value === "string" ? value.trim() : "";
-
-  if (name === "title") {
-    if (normalizedValue.length < 5) {
-      return "Tiêu đề phải có ít nhất 5 ký tự.";
-    }
-
-    if (normalizedValue.length > 200) {
-      return "Tiêu đề không được vượt quá 200 ký tự.";
-    }
-  }
-
-  if (name === "category" && !normalizedValue) {
-    return "Vui lòng chọn danh mục sự cố.";
-  }
-
-  if (name === "priority" && !VALID_PRIORITIES.has(normalizedValue)) {
-    return "Vui lòng chọn mức độ ưu tiên hợp lệ.";
-  }
-
-  if (name === "description") {
-    if (normalizedValue.length < 10) {
-      return "Mô tả chi tiết phải có ít nhất 10 ký tự.";
-    }
-
-    if (normalizedValue.length > 5000) {
-      return "Mô tả không được vượt quá 5000 ký tự.";
-    }
-  }
-
-  return "";
-}
-
-export function validateTicketForm(values) {
-  return ["title", "category", "priority", "description"].reduce(
-    (errors, fieldName) => {
-      const message = validateTicketField(fieldName, values[fieldName]);
-
-      if (message) {
-        errors[fieldName] = message;
-      }
-
-      return errors;
-    },
-    {},
-  );
-}
+export const ticketRequestSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(5, "Tiêu đề phải có ít nhất 5 ký tự.")
+    .max(200, "Tiêu đề không được vượt quá 200 ký tự."),
+  category: z.string().trim().min(1, "Vui lòng chọn danh mục sự cố."),
+  priority: z.enum(["low", "medium", "high", "urgent"], {
+    errorMap: () => ({ message: "Vui lòng chọn mức độ ưu tiên hợp lệ." }),
+  }),
+  technicianId: z.string().optional().default(""),
+  description: z
+    .string()
+    .trim()
+    .min(10, "Mô tả chi tiết phải có ít nhất 10 ký tự.")
+    .max(5000, "Mô tả không được vượt quá 5000 ký tự."),
+});
 
 export function validateImageFile(file, maxFileSizeMb) {
   const allowedMimeTypes = new Set([

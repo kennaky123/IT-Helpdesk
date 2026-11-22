@@ -1,3 +1,4 @@
+import Asset from "../models/Asset.js";
 import SoftwareLicense from "../models/SoftwareLicense.js";
 import User from "../models/User.js";
 import ApiError from "../utils/ApiError.js";
@@ -8,11 +9,44 @@ function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function enrichLicense(doc, now = new Date()) {
+async function getActiveMachineByUserMap() {
+  const assets = await Asset.find({ status: "in_use" })
+    .select("assignedTo assetTag name type")
+    .lean();
+
+  const map = new Map();
+  for (const asset of assets) {
+    if (!asset.assignedTo) continue;
+    const userId = String(asset.assignedTo);
+    const list = map.get(userId) ?? [];
+    list.push({
+      assetTag: asset.assetTag,
+      name: asset.name,
+      type: asset.type,
+    });
+    map.set(userId, list);
+  }
+  return map;
+}
+
+function enrichLicense(doc, now = new Date(), activeMachineMap = null) {
   const license = doc.toObject ? doc.toObject() : { ...doc };
-  const assignedCount = Array.isArray(license.assignedUsers)
-    ? license.assignedUsers.length
-    : 0;
+  let assignedUsers = Array.isArray(license.assignedUsers)
+    ? license.assignedUsers
+    : [];
+
+  if (activeMachineMap) {
+    assignedUsers = assignedUsers
+      .map((entry) => {
+        const userId = String(entry.user?._id ?? entry.user ?? "");
+        const devices = activeMachineMap.get(userId);
+        if (!devices || devices.length === 0) return null;
+        return { ...entry, devices };
+      })
+      .filter(Boolean);
+  }
+
+  const assignedCount = assignedUsers.length;
   const availableSeats = Math.max(0, license.totalSeats - assignedCount);
   const utilizationRate = license.totalSeats > 0
     ? Math.round((assignedCount / license.totalSeats) * 100)
@@ -40,6 +74,7 @@ function enrichLicense(doc, now = new Date()) {
 
   return {
     ...license,
+    assignedUsers,
     assignedCount,
     availableSeats,
     utilizationRate,
@@ -68,13 +103,16 @@ export async function listSoftwareLicenses(query = {}, user) {
     ];
   }
 
-  const licenses = await SoftwareLicense.find(filter)
-    .populate({ path: "assignedUsers.user", select: personSelect })
-    .populate({ path: "createdBy", select: "fullName role" })
-    .sort({ updatedAt: -1, _id: -1 })
-    .lean();
+  const [licenses, activeMachineMap] = await Promise.all([
+    SoftwareLicense.find(filter)
+      .populate({ path: "assignedUsers.user", select: personSelect })
+      .populate({ path: "createdBy", select: "fullName role" })
+      .sort({ updatedAt: -1, _id: -1 })
+      .lean(),
+    getActiveMachineByUserMap(),
+  ]);
 
-  let enriched = licenses.map((lic) => enrichLicense(lic, now));
+  let enriched = licenses.map((lic) => enrichLicense(lic, now, activeMachineMap));
 
   if (query.status) {
     enriched = enriched.filter((lic) => lic.status === query.status);
@@ -89,12 +127,15 @@ export async function listSoftwareLicenses(query = {}, user) {
 }
 
 export async function getSoftwareLicense(licenseId) {
-  const license = await SoftwareLicense.findById(licenseId)
-    .populate({ path: "assignedUsers.user", select: personSelect })
-    .populate({ path: "createdBy", select: "fullName role" });
+  const [license, activeMachineMap] = await Promise.all([
+    SoftwareLicense.findById(licenseId)
+      .populate({ path: "assignedUsers.user", select: personSelect })
+      .populate({ path: "createdBy", select: "fullName role" }),
+    getActiveMachineByUserMap(),
+  ]);
 
   if (!license) throw new ApiError(404, "Không tìm thấy thông tin bản quyền phần mềm.");
-  return enrichLicense(license);
+  return enrichLicense(license, new Date(), activeMachineMap);
 }
 
 export async function createSoftwareLicense(input, actor) {
@@ -121,12 +162,15 @@ export async function updateSoftwareLicense(licenseId, input, actor) {
   Object.assign(license, input, { updatedBy: actor._id });
   await license.save();
 
-  return enrichLicense(
-    await SoftwareLicense.findById(licenseId).populate({
+  const [populated, activeMachineMap] = await Promise.all([
+    SoftwareLicense.findById(licenseId).populate({
       path: "assignedUsers.user",
       select: personSelect,
     }),
-  );
+    getActiveMachineByUserMap(),
+  ]);
+
+  return enrichLicense(populated, new Date(), activeMachineMap);
 }
 
 export async function deleteSoftwareLicense(licenseId) {
@@ -144,16 +188,26 @@ export async function deleteSoftwareLicense(licenseId) {
 }
 
 export async function allocateLicense(licenseId, { userId, note }, actor) {
-  const [license, employee] = await Promise.all([
+  const [license, employee, hasActiveMachine, activeMachineMap] = await Promise.all([
     SoftwareLicense.findById(licenseId),
     User.findOne({ _id: userId, status: "active" }),
+    Asset.exists({ assignedTo: userId, status: "in_use" }),
+    getActiveMachineByUserMap(),
   ]);
 
   if (!license) throw new ApiError(404, "Không tìm thấy bản quyền phần mềm.");
   if (!employee) throw new ApiError(400, "Nhân viên không tồn tại hoặc đã bị khóa.");
+  if (!hasActiveMachine) {
+    throw new ApiError(400, "Nhân viên này hiện không sử dụng thiết bị nào của công ty.");
+  }
 
-  const isAlreadyAssigned = license.assignedUsers.some((item) =>
-    item.user.equals(employee._id),
+  license.assignedUsers = (license.assignedUsers || []).filter((item) =>
+    activeMachineMap.has(String(item.user?._id ?? item.user ?? "")),
+  );
+
+  const employeeIdStr = String(employee._id);
+  const isAlreadyAssigned = license.assignedUsers.some(
+    (item) => String(item.user?._id ?? item.user ?? "") === employeeIdStr,
   );
   if (isAlreadyAssigned) {
     throw new ApiError(400, `${employee.fullName} đã được cấp bản quyền này rồi.`);
@@ -179,6 +233,8 @@ export async function allocateLicense(licenseId, { userId, note }, actor) {
       path: "assignedUsers.user",
       select: personSelect,
     }),
+    new Date(),
+    activeMachineMap,
   );
 }
 
@@ -186,9 +242,10 @@ export async function revokeLicense(licenseId, { userId }, actor) {
   const license = await SoftwareLicense.findById(licenseId);
   if (!license) throw new ApiError(404, "Không tìm thấy bản quyền phần mềm.");
 
+  const userIdStr = String(userId);
   const initialCount = license.assignedUsers.length;
   license.assignedUsers = license.assignedUsers.filter(
-    (item) => !item.user.equals(userId),
+    (item) => String(item.user?._id ?? item.user ?? "") !== userIdStr,
   );
 
   if (license.assignedUsers.length === initialCount) {
@@ -198,16 +255,22 @@ export async function revokeLicense(licenseId, { userId }, actor) {
   license.updatedBy = actor._id;
   await license.save();
 
-  return enrichLicense(
-    await SoftwareLicense.findById(licenseId).populate({
+  const [populated, activeMachineMap] = await Promise.all([
+    SoftwareLicense.findById(licenseId).populate({
       path: "assignedUsers.user",
       select: personSelect,
     }),
-  );
+    getActiveMachineByUserMap(),
+  ]);
+
+  return enrichLicense(populated, new Date(), activeMachineMap);
 }
 
 export async function getFinOpsSummary() {
-  const licenses = await SoftwareLicense.find().lean();
+  const [licenses, activeMachineMap] = await Promise.all([
+    SoftwareLicense.find().lean(),
+    getActiveMachineByUserMap(),
+  ]);
   const now = new Date();
 
   let totalLicenses = licenses.length;
@@ -221,7 +284,11 @@ export async function getFinOpsSummary() {
 
   for (const lic of licenses) {
     const seats = Number(lic.totalSeats || 0);
-    const assigned = Array.isArray(lic.assignedUsers) ? lic.assignedUsers.length : 0;
+    const assigned = Array.isArray(lic.assignedUsers)
+      ? lic.assignedUsers.filter((entry) =>
+          activeMachineMap.has(String(entry.user?._id ?? entry.user ?? "")),
+        ).length
+      : 0;
     const unassigned = Math.max(0, seats - assigned);
     const costPerSeat = Number(lic.costPerSeat || 0);
     const totalLicCost = costPerSeat * seats;

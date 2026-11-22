@@ -1,5 +1,6 @@
 import Asset from "../models/Asset.js";
 import AssetRequest from "../models/AssetRequest.js";
+import SoftwareLicense from "../models/SoftwareLicense.js";
 import TicketCounter from "../models/TicketCounter.js";
 import User from "../models/User.js";
 import ApiError from "../utils/ApiError.js";
@@ -198,6 +199,33 @@ export async function returnAsset(assetId, { note, status = "in_stock" }, actor)
   asset.assignedAt = null;
 
   await asset.save();
+
+  if (previousUser) {
+    const stillHasActiveAsset = await Asset.exists({
+      assignedTo: previousUser,
+      status: "in_use",
+    });
+
+    if (!stillHasActiveAsset) {
+      const affectedLicenses = await SoftwareLicense.find({
+        "assignedUsers.user": previousUser,
+      });
+      const prevUserIdStr = String(previousUser);
+      await Promise.all(
+        affectedLicenses.map(async (license) => {
+          const nextAssigned = (license.assignedUsers || []).filter(
+            (entry) => String(entry.user?._id ?? entry.user) !== prevUserIdStr,
+          );
+          if (nextAssigned.length !== (license.assignedUsers || []).length) {
+            license.assignedUsers = nextAssigned;
+            license.updatedBy = actor._id;
+            await license.save();
+          }
+        }),
+      );
+    }
+  }
+
   return asset.populate(assetPopulate);
 }
 

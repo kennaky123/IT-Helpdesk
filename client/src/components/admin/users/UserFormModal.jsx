@@ -1,5 +1,8 @@
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, LoaderCircle, UserPlus } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { Button } from "../../ui/button.jsx";
 import {
   Dialog,
@@ -25,45 +28,68 @@ const EMPTY_FORM = {
 const selectClasses =
   "mt-2 min-h-10 w-full rounded-lg border border-brand-bone bg-white px-3.5 text-sm text-brand-ink outline-none transition focus:border-brand-violet focus:ring-2 focus:ring-brand-violet/20";
 
-function validate(values, users, editingId) {
-  const errors = {};
-  if (values.fullName.trim().length < 2) {
-    errors.fullName = "Họ và tên phải có ít nhất 2 ký tự.";
-  }
-  if (!/^\S+@\S+\.\S+$/.test(values.email.trim())) {
-    errors.email = "Email không đúng định dạng.";
-  } else if (
-    users.some(
-      (user) =>
-        user.id !== editingId &&
-        user.email.toLowerCase() === values.email.trim().toLowerCase(),
-    )
-  ) {
-    errors.email = "Email này đã được sử dụng.";
-  }
+function createUserFormSchema(users, editingId) {
+  return z
+    .object({
+      fullName: z.string().trim().min(2, "Họ và tên phải có ít nhất 2 ký tự."),
+      email: z
+        .string()
+        .trim()
+        .email("Email không đúng định dạng.")
+        .refine(
+          (value) =>
+            !users.some(
+              (item) =>
+                item.id !== editingId &&
+                item.email.toLowerCase() === value.toLowerCase(),
+            ),
+          "Email này đã được sử dụng.",
+        ),
+      phone: z
+        .string()
+        .trim()
+        .refine(
+          (value) => !value || /^[0-9+().\s-]{8,20}$/.test(value),
+          "Số điện thoại không đúng định dạng.",
+        ),
+      department: z
+        .string()
+        .trim()
+        .max(100, "Phòng ban không quá 100 ký tự."),
+      role: z.enum(["user", "technician", "admin"]),
+      status: z.enum(["active", "locked"]),
+      password: z.string(),
+      confirmPassword: z.string(),
+    })
+    .superRefine((data, ctx) => {
+      if (!editingId || data.password) {
+        if (data.password.length < 8) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["password"],
+            message: "Mật khẩu phải có ít nhất 8 ký tự.",
+          });
+        } else if (
+          !/[a-z]/.test(data.password) ||
+          !/[A-Z]/.test(data.password) ||
+          !/\d/.test(data.password)
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["password"],
+            message: "Mật khẩu cần gồm chữ thường, chữ hoa và chữ số.",
+          });
+        }
+      }
 
-  const trimmedPhone = values.phone.trim();
-  if (trimmedPhone && !/^[0-9+().\s-]{8,20}$/.test(trimmedPhone)) {
-    errors.phone = "Số điện thoại không đúng định dạng.";
-  }
-
-  if (!editingId || values.password) {
-    if (values.password.length < 8) {
-      errors.password = "Mật khẩu phải có ít nhất 8 ký tự.";
-    } else if (
-      !/[a-z]/.test(values.password) ||
-      !/[A-Z]/.test(values.password) ||
-      !/\d/.test(values.password)
-    ) {
-      errors.password = "Mật khẩu cần gồm chữ thường, chữ hoa và chữ số.";
-    }
-  }
-
-  if (values.password !== values.confirmPassword) {
-    errors.confirmPassword = "Mật khẩu xác nhận không khớp.";
-  }
-
-  return errors;
+      if (data.password !== data.confirmPassword) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["confirmPassword"],
+          message: "Mật khẩu xác nhận không khớp.",
+        });
+      }
+    });
 }
 
 function FieldError({ children }) {
@@ -76,36 +102,34 @@ function FieldError({ children }) {
 
 function UserFormModal({ user, users, onClose, onSave }) {
   const isEditing = Boolean(user);
-  const [values, setValues] = useState(() =>
-    user
+  const [showPassword, setShowPassword] = useState(false);
+
+  const schema = useMemo(
+    () => createUserFormSchema(users, user?.id),
+    [users, user?.id],
+  );
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm({
+    resolver: zodResolver(schema),
+    defaultValues: user
       ? {
-          ...EMPTY_FORM,
-          ...user,
+          fullName: user.fullName ?? "",
+          email: user.email ?? "",
+          phone: user.phone ?? "",
           department: user.department ?? "",
+          role: user.role ?? "user",
           status: user.status === "locked" ? "locked" : "active",
           password: "",
           confirmPassword: "",
         }
       : EMPTY_FORM,
-  );
-  const [errors, setErrors] = useState({});
-  const [showPassword, setShowPassword] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  });
 
-  function updateField(name, value) {
-    setValues((current) => ({ ...current, [name]: value }));
-    setErrors((current) => ({ ...current, [name]: undefined }));
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    const nextErrors = validate(values, users, user?.id);
-    if (Object.keys(nextErrors).length) {
-      setErrors(nextErrors);
-      return;
-    }
-
-    setSubmitting(true);
+  async function onValidSubmit(values) {
     try {
       await onSave({
         ...values,
@@ -115,12 +139,17 @@ function UserFormModal({ user, users, onClose, onSave }) {
         department: values.department.trim(),
       });
     } catch {
-      setSubmitting(false);
+      // Parent handler reports API error via toast
     }
   }
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open && !submitting) onClose(); }}>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !isSubmitting) onClose();
+      }}
+    >
       <DialogContent className="max-w-2xl p-0">
         <DialogHeader className="flex-row items-center gap-3 space-y-0 pr-12">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
@@ -138,7 +167,7 @@ function UserFormModal({ user, users, onClose, onSave }) {
           </div>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} noValidate>
+        <form onSubmit={handleSubmit(onValidSubmit)} noValidate>
           <div className="grid gap-4 p-5 sm:grid-cols-2 sm:p-6">
             <label className="sm:col-span-2">
               <span className="text-sm font-semibold text-slate-700">
@@ -146,13 +175,12 @@ function UserFormModal({ user, users, onClose, onSave }) {
               </span>
               <Input
                 autoFocus
-                value={values.fullName}
-                onChange={(event) => updateField("fullName", event.target.value)}
                 className="mt-2 min-h-10"
                 placeholder="Nguyễn Văn An"
                 aria-invalid={Boolean(errors.fullName)}
+                {...register("fullName")}
               />
-              <FieldError>{errors.fullName}</FieldError>
+              <FieldError>{errors.fullName?.message}</FieldError>
             </label>
 
             <label>
@@ -161,13 +189,12 @@ function UserFormModal({ user, users, onClose, onSave }) {
               </span>
               <Input
                 type="email"
-                value={values.email}
-                onChange={(event) => updateField("email", event.target.value)}
                 className="mt-2 min-h-10"
                 placeholder="user@company.vn"
                 aria-invalid={Boolean(errors.email)}
+                {...register("email")}
               />
-              <FieldError>{errors.email}</FieldError>
+              <FieldError>{errors.email?.message}</FieldError>
             </label>
 
             <label>
@@ -176,13 +203,12 @@ function UserFormModal({ user, users, onClose, onSave }) {
               </span>
               <Input
                 type="tel"
-                value={values.phone}
-                onChange={(event) => updateField("phone", event.target.value)}
                 className="mt-2 min-h-10"
                 placeholder="0901 234 567"
                 aria-invalid={Boolean(errors.phone)}
+                {...register("phone")}
               />
-              <FieldError>{errors.phone}</FieldError>
+              <FieldError>{errors.phone?.message}</FieldError>
             </label>
 
             <label className="sm:col-span-2">
@@ -190,11 +216,12 @@ function UserFormModal({ user, users, onClose, onSave }) {
                 Phòng ban
               </span>
               <Input
-                value={values.department}
-                onChange={(event) => updateField("department", event.target.value)}
                 className="mt-2 min-h-10"
                 placeholder="Ví dụ: Kế toán, Vận hành, Công nghệ thông tin..."
+                aria-invalid={Boolean(errors.department)}
+                {...register("department")}
               />
+              <FieldError>{errors.department?.message}</FieldError>
             </label>
 
             <label>
@@ -211,11 +238,10 @@ function UserFormModal({ user, users, onClose, onSave }) {
               <span className="relative block">
                 <Input
                   type={showPassword ? "text" : "password"}
-                  value={values.password}
-                  onChange={(event) => updateField("password", event.target.value)}
                   className="mt-2 min-h-10 pr-10"
                   placeholder="Ít nhất 8 ký tự (A-Z, a-z, 0-9)"
                   aria-invalid={Boolean(errors.password)}
+                  {...register("password")}
                 />
                 <button
                   type="button"
@@ -230,7 +256,7 @@ function UserFormModal({ user, users, onClose, onSave }) {
                   )}
                 </button>
               </span>
-              <FieldError>{errors.password}</FieldError>
+              <FieldError>{errors.password?.message}</FieldError>
             </label>
 
             <label>
@@ -240,26 +266,19 @@ function UserFormModal({ user, users, onClose, onSave }) {
               </span>
               <Input
                 type={showPassword ? "text" : "password"}
-                value={values.confirmPassword}
-                onChange={(event) =>
-                  updateField("confirmPassword", event.target.value)
-                }
                 className="mt-2 min-h-10"
                 placeholder="Nhập lại mật khẩu"
                 aria-invalid={Boolean(errors.confirmPassword)}
+                {...register("confirmPassword")}
               />
-              <FieldError>{errors.confirmPassword}</FieldError>
+              <FieldError>{errors.confirmPassword?.message}</FieldError>
             </label>
 
             <label>
               <span className="text-sm font-semibold text-slate-700">
                 Vai trò
               </span>
-              <select
-                value={values.role}
-                onChange={(event) => updateField("role", event.target.value)}
-                className={selectClasses}
-              >
+              <select className={selectClasses} {...register("role")}>
                 <option value="user">Người dùng</option>
                 <option value="technician">Kỹ thuật viên</option>
                 <option value="admin">Quản trị viên</option>
@@ -270,11 +289,7 @@ function UserFormModal({ user, users, onClose, onSave }) {
               <span className="text-sm font-semibold text-slate-700">
                 Trạng thái
               </span>
-              <select
-                value={values.status}
-                onChange={(event) => updateField("status", event.target.value)}
-                className={selectClasses}
-              >
+              <select className={selectClasses} {...register("status")}>
                 <option value="active">Đang hoạt động</option>
                 <option value="locked">Bị khóa</option>
               </select>
@@ -286,15 +301,15 @@ function UserFormModal({ user, users, onClose, onSave }) {
               type="button"
               variant="outline"
               onClick={onClose}
-              disabled={submitting}
+              disabled={isSubmitting}
             >
               Hủy
             </Button>
-            <Button type="submit" variant="primary" disabled={submitting}>
-              {submitting ? (
+            <Button type="submit" variant="primary" disabled={isSubmitting}>
+              {isSubmitting ? (
                 <LoaderCircle className="size-4 animate-spin" />
               ) : null}
-              {submitting
+              {isSubmitting
                 ? "Đang lưu..."
                 : isEditing
                   ? "Lưu thay đổi"
