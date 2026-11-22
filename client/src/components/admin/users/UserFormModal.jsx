@@ -1,3 +1,13 @@
+/**
+ * Modal biểu mẫu tạo mới hoặc chỉnh sửa tài khoản người dùng trong module quản trị User của Admin.
+ * Hỗ trợ validate thông tin cá nhân, kiểm tra email trùng lặp, đổi mật khẩu tùy chọn khi sửa và phân quyền vai trò/trạng thái.
+ *
+ * Props:
+ * - user: Đối tượng người dùng cần chỉnh sửa (null/undefined nếu đang thêm mới).
+ * - users: Danh sách người dùng hiện có dùng để kiểm tra trùng lặp email.
+ * - onClose: Callback đóng modal.
+ * - onSave: Callback async nhận payload người dùng đã chuẩn hóa để gọi API lưu.
+ */
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, LoaderCircle, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -14,6 +24,7 @@ import {
 } from "../../ui/dialog.jsx";
 import { Input } from "../../ui/input.jsx";
 
+// Giá trị mặc định khi mở modal tạo người dùng mới
 const EMPTY_FORM = {
   fullName: "",
   email: "",
@@ -25,9 +36,16 @@ const EMPTY_FORM = {
   status: "active",
 };
 
+// Class CSS dùng chung cho các thẻ select chọn vai trò và trạng thái
 const selectClasses =
   "mt-2 min-h-10 w-full rounded-lg border border-brand-bone bg-white px-3.5 text-sm text-brand-ink outline-none transition focus:border-brand-violet focus:ring-2 focus:ring-brand-violet/20";
 
+/**
+ * Tạo schema Zod validate form người dùng theo ngữ cảnh thêm mới hoặc chỉnh sửa (editingId).
+ * - Kiểm tra email hợp lệ và không trùng với tài khoản khác.
+ * - Kiểm tra số điện thoại (nếu có nhập), độ dài phòng ban.
+ * - Khi thêm mới hoặc có nhập mật khẩu mới lúc chỉnh sửa: bắt buộc độ dài >= 8 và đủ chữ thường, chữ hoa, số; đồng thời kiểm tra khớp confirmPassword.
+ */
 function createUserFormSchema(users, editingId) {
   return z
     .object({
@@ -37,6 +55,7 @@ function createUserFormSchema(users, editingId) {
         .trim()
         .email("Email không đúng định dạng.")
         .refine(
+          // Không cho phép trùng email với user khác trong danh sách
           (value) =>
             !users.some(
               (item) =>
@@ -49,6 +68,7 @@ function createUserFormSchema(users, editingId) {
         .string()
         .trim()
         .refine(
+          // Cho phép để trống, nhưng nếu có nhập thì phải đúng định dạng số điện thoại
           (value) => !value || /^[0-9+().\s-]{8,20}$/.test(value),
           "Số điện thoại không đúng định dạng.",
         ),
@@ -62,6 +82,7 @@ function createUserFormSchema(users, editingId) {
       confirmPassword: z.string(),
     })
     .superRefine((data, ctx) => {
+      // Nếu đang tạo mới (!editingId) hoặc người dùng có nhập mật khẩu mới khi sửa thì kiểm tra độ mạnh mật khẩu
       if (!editingId || data.password) {
         if (data.password.length < 8) {
           ctx.addIssue({
@@ -82,6 +103,7 @@ function createUserFormSchema(users, editingId) {
         }
       }
 
+      // Kiểm tra mật khẩu xác nhận phải trùng khớp với mật khẩu đã nhập
       if (data.password !== data.confirmPassword) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -92,6 +114,9 @@ function createUserFormSchema(users, editingId) {
     });
 }
 
+/**
+ * Component phụ hiển thị thông báo lỗi validation dưới mỗi trường form.
+ */
 function FieldError({ children }) {
   return children ? (
     <p className="mt-1.5 text-xs text-red-600" role="alert">
@@ -100,15 +125,22 @@ function FieldError({ children }) {
   ) : null;
 }
 
+/**
+ * Component modal tạo và chỉnh sửa thông tin người dùng.
+ */
 function UserFormModal({ user, users, onClose, onSave }) {
+  // Xác định đang chỉnh sửa user hay tạo tài khoản mới
   const isEditing = Boolean(user);
+  // State bật/tắt hiển thị ký tự mật khẩu
   const [showPassword, setShowPassword] = useState(false);
 
+  // Tạo schema validate gắn với danh sách users và id đang sửa
   const schema = useMemo(
     () => createUserFormSchema(users, user?.id),
     [users, user?.id],
   );
 
+  // Khởi tạo React Hook Form với zodResolver và giá trị mặc định tương ứng chế độ thêm/sửa
   const {
     register,
     handleSubmit,
@@ -129,8 +161,10 @@ function UserFormModal({ user, users, onClose, onSave }) {
       : EMPTY_FORM,
   });
 
+  // Handler xử lý submit sau khi dữ liệu vượt qua kiểm tra Zod
   async function onValidSubmit(values) {
     try {
+      // Cắt khoảng trắng đầu/cuối các trường chuỗi trước khi truyền ra handler lưu của component cha
       await onSave({
         ...values,
         fullName: values.fullName.trim(),
@@ -147,10 +181,12 @@ function UserFormModal({ user, users, onClose, onSave }) {
     <Dialog
       open
       onOpenChange={(open) => {
+        // Ngăn đóng modal khi request đang trong quá trình gửi lên server
         if (!open && !isSubmitting) onClose();
       }}
     >
       <DialogContent className="max-w-2xl p-0">
+        {/* Tiêu đề modal thay đổi theo chế độ thêm mới hoặc chỉnh sửa */}
         <DialogHeader className="flex-row items-center gap-3 space-y-0 pr-12">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
             <UserPlus className="size-5" />
@@ -167,6 +203,7 @@ function UserFormModal({ user, users, onClose, onSave }) {
           </div>
         </DialogHeader>
 
+        {/* Form thông tin tài khoản người dùng */}
         <form onSubmit={(event) => handleSubmit(onValidSubmit)(event)} noValidate>
           <div className="grid gap-4 p-5 sm:grid-cols-2 sm:p-6">
             <label className="sm:col-span-2">
@@ -224,6 +261,7 @@ function UserFormModal({ user, users, onClose, onSave }) {
               <FieldError>{errors.department?.message}</FieldError>
             </label>
 
+            {/* Ô nhập mật khẩu kèm nút ẩn/hiện mật khẩu */}
             <label>
               <span className="text-sm font-semibold text-slate-700">
                 Mật khẩu{" "}
@@ -259,6 +297,7 @@ function UserFormModal({ user, users, onClose, onSave }) {
               <FieldError>{errors.password?.message}</FieldError>
             </label>
 
+            {/* Ô xác nhận mật khẩu đồng bộ trạng thái ẩn/hiện */}
             <label>
               <span className="text-sm font-semibold text-slate-700">
                 Xác nhận mật khẩu{" "}
@@ -274,6 +313,7 @@ function UserFormModal({ user, users, onClose, onSave }) {
               <FieldError>{errors.confirmPassword?.message}</FieldError>
             </label>
 
+            {/* Phân quyền vai trò và trạng thái khóa/hoạt động */}
             <label>
               <span className="text-sm font-semibold text-slate-700">
                 Vai trò
@@ -296,6 +336,7 @@ function UserFormModal({ user, users, onClose, onSave }) {
             </label>
           </div>
 
+          {/* Chân modal chứa nút Hủy và Lưu */}
           <DialogFooter>
             <Button
               type="button"

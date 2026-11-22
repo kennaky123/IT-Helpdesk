@@ -1,3 +1,14 @@
+/**
+ * Trang Quản Lý Kho Thiết Bị & Cấp Phát Laptop (IT Asset Management / CMDB).
+ *
+ * Vai trò trong hệ thống IT Helpdesk:
+ * - Quản lý toàn bộ vòng đời tài sản CNTT (laptop, PC, màn hình, phụ kiện): nhập kho,
+ *   cấp phát cho nhân viên, thu hồi về kho, chỉnh sửa/xóa, xem lịch sử biến động
+ *   và hỗ trợ kết nối điều khiển từ xa (AnyDesk / TeamViewer).
+ * - Quản lý luồng Yêu cầu cấp phát laptop giữa Admin và đội ngũ Kỹ thuật viên
+ *   (tạo yêu cầu, tiếp nhận, hoàn tất bàn giao hoặc hủy yêu cầu).
+ * - Hỗ trợ nhân viên (role "user") tải bộ cài USB Agent trực tiếp từ thanh tác vụ.
+ */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -32,19 +43,28 @@ import {
 } from "../../services/assetService.js";
 import { getAgentDownloadUrl } from "../../services/usbService.js";
 
+/**
+ * Component chính của trang Quản lý Kho thiết bị & Yêu cầu cấp phát.
+ * Điều phối hai tab chính ("assets" và "requests") cùng các modal/drawer thao tác vòng đời tài sản.
+ */
 function AssetManagementPage() {
+  // Client React Query dùng để invalidate cache nhóm ["assets"] sau mỗi thao tác cập nhật
   const queryClient = useQueryClient();
+  // Lấy thông tin người dùng hiện tại để phân quyền hiển thị nút chức năng theo vai trò
   const { user } = useAuth();
   const role = user?.role || "admin";
 
+  // Tab đang hiển thị trên giao diện
   const [activeTab, setActiveTab] = useState("assets"); // "assets" | "requests"
 
   // Filters
+  // Các state bộ lọc cho danh sách thiết bị (tìm kiếm, trạng thái và loại thiết bị)
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
 
   // Modals state
+  // Các state điều khiển modal/drawer thao tác trực tiếp trên thiết bị
   const [formAsset, setFormAsset] = useState(null); // null = closed, {} = create, obj = edit
   const [assignAssetTarget, setAssignAssetTarget] = useState(null);
   const [returnAssetTarget, setReturnAssetTarget] = useState(null);
@@ -53,21 +73,25 @@ function AssetManagementPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   // Request Modals
+  // Các state điều khiển modal quy trình yêu cầu cấp phát laptop
   const [isCreateRequestOpen, setIsCreateRequestOpen] = useState(false);
   const [completeRequestTarget, setCompleteRequestTarget] = useState(null);
   const [cancelRequestTarget, setCancelRequestTarget] = useState(null);
 
+  // Luồng lấy dữ liệu 1: truy vấn danh sách thiết bị & số liệu tổng hợp theo bộ lọc hiện hành
   const assetsQuery = useQuery({
     queryKey: ["assets", "list", { search, status: statusFilter, type: typeFilter }],
     queryFn: ({ signal }) =>
       getAssets({ search, status: statusFilter, type: typeFilter }, { signal }),
   });
 
+  // Luồng lấy dữ liệu 2: truy vấn danh sách yêu cầu cấp phát laptop từ Admin tới Kỹ thuật viên
   const requestsQuery = useQuery({
     queryKey: ["assets", "requests"],
     queryFn: ({ signal }) => getAssetRequests({}, { signal }),
   });
 
+  // Theo dõi lỗi tải dữ liệu từ cả 2 truy vấn và hiển thị thông báo toast
   useEffect(() => {
     const error = assetsQuery.error || requestsQuery.error;
     if (error) {
@@ -75,15 +99,20 @@ function AssetManagementPage() {
     }
   }, [assetsQuery.error, requestsQuery.error]);
 
+  // Trích xuất dữ liệu thiết bị, thống kê tổng quan và danh sách yêu cầu với giá trị dự phòng an toàn
   const assets = assetsQuery.data?.assets || [];
   const summary = useMemo(() => assetsQuery.data?.summary || {}, [assetsQuery.data]);
   const requests = useMemo(() => requestsQuery.data || [], [requestsQuery.data]);
 
+  // Làm mới toàn bộ cache React Query thuộc nhánh ["assets"] (bao gồm danh sách thiết bị và yêu cầu cấp phát)
   const refreshData = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["assets"] });
   }, [queryClient]);
 
   // Actions
+  /**
+   * Xử lý xác nhận xóa thiết bị khỏi kho CMDB, thông báo kết quả và invalidate cache.
+   */
   async function handleDeleteConfirm() {
     if (!deleteTarget) return;
     try {
@@ -96,6 +125,9 @@ function AssetManagementPage() {
     }
   }
 
+  /**
+   * Kỹ thuật viên nhấn tiếp nhận một yêu cầu cấp phát laptop, chuyển trạng thái xử lý và làm mới dữ liệu.
+   */
   async function handleAcceptRequest(req) {
     try {
       await acceptAssetRequest(req._id);
@@ -106,6 +138,9 @@ function AssetManagementPage() {
     }
   }
 
+  /**
+   * Hủy yêu cầu cấp phát laptop kèm lý do nhập từ modal xác nhận, sau đó làm mới cache.
+   */
   async function handleCancelRequestConfirm(note) {
     if (!cancelRequestTarget) return;
     try {
@@ -118,6 +153,7 @@ function AssetManagementPage() {
     }
   }
 
+  // Đếm số lượng yêu cầu cấp phát đang chờ hoặc đang thực hiện để hiển thị huy hiệu trên tab
   const pendingRequestsCount = useMemo(() => {
     return requests.filter((r) => r.status === "pending" || r.status === "in_progress").length;
   }, [requests]);
@@ -125,6 +161,7 @@ function AssetManagementPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
+      {/* Tiêu đề trang kèm các nút hành động phân quyền theo vai trò user / admin */}
       <WorkspacePageHeader
         eyebrow="IT Asset Management • Realtime"
         title="Quản Lý Kho Thiết Bị & Cấp Phát Laptop"
@@ -177,9 +214,11 @@ function AssetManagementPage() {
       />
 
       {/* Stats Summary */}
+      {/* Lưới thẻ tổng quan số lượng thiết bị theo trạng thái trong kho */}
       <AssetStatsGrid summary={summary} />
 
       {/* Tabs and Filters */}
+      {/* Khung chứa hệ thống Tab chuyển đổi và bộ lọc/bảng dữ liệu */}
       <div className="bg-white rounded-2xl border border-brand-bone shadow-xs overflow-hidden">
         {/* Navigation Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -206,6 +245,7 @@ function AssetManagementPage() {
         </Tabs>
 
         {/* Tab 1: Assets in stock & in use */}
+        {/* Nội dung Tab 1: Bộ lọc và bảng quản lý thiết bị trong kho / đang cấp phát */}
         {activeTab === "assets" && (
           <div>
             {/* Filter Bar */}
@@ -264,6 +304,7 @@ function AssetManagementPage() {
         )}
 
         {/* Tab 2: Asset Requests */}
+        {/* Nội dung Tab 2: Danh sách yêu cầu cấp phát laptop giữa Admin và Kỹ thuật viên */}
         {activeTab === "requests" && (
           <div>
             <div className="p-4 border-b border-brand-bone bg-brand-mist/20 flex items-center justify-between">
@@ -295,6 +336,7 @@ function AssetManagementPage() {
       </div>
 
       {/* Modals & Drawers */}
+      {/* Modal thêm/chỉnh sửa thông tin thiết bị */}
       {formAsset && (
         <AssetFormModal
           asset={formAsset}
@@ -306,6 +348,7 @@ function AssetManagementPage() {
         />
       )}
 
+      {/* Modal cấp phát thiết bị cho nhân viên */}
       {assignAssetTarget && (
         <AssignAssetModal
           asset={assignAssetTarget}
@@ -317,6 +360,7 @@ function AssetManagementPage() {
         />
       )}
 
+      {/* Modal thu hồi thiết bị từ nhân viên về lại kho */}
       {returnAssetTarget && (
         <ReturnAssetModal
           asset={returnAssetTarget}
@@ -328,6 +372,7 @@ function AssetManagementPage() {
         />
       )}
 
+      {/* Modal cấu hình hoặc mở kết nối hỗ trợ từ xa (AnyDesk / TeamViewer) */}
       {remoteAsset && (
         <RemoteConnectModal
           asset={remoteAsset}
@@ -339,6 +384,7 @@ function AssetManagementPage() {
         />
       )}
 
+      {/* Drawer xem lịch sử cấp phát và bảo trì của thiết bị */}
       {historyAssetId && (
         <AssetHistoryDrawer
           assetId={historyAssetId}
@@ -346,6 +392,7 @@ function AssetManagementPage() {
         />
       )}
 
+      {/* Modal Admin tạo yêu cầu cấp phát laptop mới cho kỹ thuật viên */}
       {isCreateRequestOpen && (
         <CreateAssetRequestModal
           onClose={() => setIsCreateRequestOpen(false)}
@@ -356,6 +403,7 @@ function AssetManagementPage() {
         />
       )}
 
+      {/* Modal kỹ thuật viên hoàn tất bàn giao thiết bị cho yêu cầu cấp phát */}
       {completeRequestTarget && (
         <CompleteAssetRequestModal
           request={completeRequestTarget}
@@ -367,6 +415,7 @@ function AssetManagementPage() {
         />
       )}
 
+      {/* Modal xác nhận xóa vĩnh viễn thiết bị khỏi kho */}
       {deleteTarget && (
         <ConfirmActionModal
           title="Xác Nhận Xóa Thiết Bị"
@@ -377,6 +426,7 @@ function AssetManagementPage() {
         />
       )}
 
+      {/* Modal xác nhận hủy yêu cầu cấp phát laptop kèm ô nhập lý do */}
       {cancelRequestTarget && (
         <ConfirmActionModal
           title="Xác Nhận Hủy Yêu Cầu Cấp Phát"

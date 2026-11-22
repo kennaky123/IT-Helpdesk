@@ -1,7 +1,17 @@
+/**
+ * @file UserTicketsPage.jsx
+ * @description Trang danh sách và theo dõi toàn bộ ticket yêu cầu hỗ trợ mà người dùng hiện tại đã gửi.
+ * @role User (Nhân viên nội bộ).
+ * @flow Tái sử dụng component `TicketCollectionPage` để tìm kiếm, lọc, phân trang danh sách ticket của cá nhân và cung cấp nút "Tạo yêu cầu" chuyển đến `/user/tickets/new`.
+ */
 import { Plus } from "lucide-react";
 import { Link } from "react-router-dom";
 import TicketCollectionPage from "../../components/workspace/TicketCollectionPage.jsx";
 
+/**
+ * Component trang "Yêu cầu của tôi" dành cho người dùng nội bộ.
+ * Truyền `headerAction` chứa nút điều hướng nhanh tới form tạo ticket mới.
+ */
 function UserTicketsPage() {
   return (
     <TicketCollectionPage

@@ -1,3 +1,13 @@
+/**
+ * Trang Tổng Quan Vận Hành IT Help Desk (Admin Dashboard).
+ *
+ * Vai trò trong hệ thống IT Helpdesk:
+ * - Là màn hình trung tâm dành cho quản trị viên theo dõi sức khỏe vận hành theo thời gian thực.
+ * - Hiển thị các chỉ số KPI cốt lõi (tổng ticket, chờ xử lý, đang xử lý, hoàn thành, MTTR, CSAT, P1),
+ *   các biểu đồ phân tích lưu lượng 7 ngày / trạng thái SLA / danh mục sự cố,
+ *   danh sách ticket mới nhất và bảng hiệu suất đội ngũ kỹ thuật viên từ PostgreSQL.
+ * - Hỗ trợ làm mới dữ liệu thủ công và xuất báo cáo thống kê nhanh ra file CSV.
+ */
 import {
   CheckCircle2,
   Clock3,
@@ -27,6 +37,9 @@ import {
   formatDashboardNumber,
 } from "../../utils/dashboardFormatters.js";
 
+/**
+ * Helper định dạng thời gian xử lý trung bình (MTTR) sang chuỗi hiển thị theo phút hoặc giờ.
+ */
 function formatAverageResolution(resolutionTime) {
   if (!resolutionTime || resolutionTime.minutes == null) {
     return "Chưa có dữ liệu";
@@ -37,10 +50,18 @@ function formatAverageResolution(resolutionTime) {
   return `${resolutionTime.hours} giờ`;
 }
 
+/**
+ * Component chính của trang Dashboard quản trị IT Help Desk.
+ * Lấy dữ liệu tổng hợp thông qua hook useAdminDashboard (React Query) và render các khối KPI/biểu đồ.
+ */
 function AdminDashboardPage() {
+  // Luồng lấy dữ liệu: hook useAdminDashboard quản lý query dashboard, trạng thái loading/refreshing và refetch
   const { data, error, isLoading, isRefreshing, refetch } =
     useAdminDashboard();
 
+  /**
+   * Xử lý xuất các chỉ số tổng quan hiện tại ra file CSV (có BOM UTF-8 để mở chuẩn tiếng Việt trong Excel).
+   */
   function handleExportCsv() {
     if (!data) return;
     const rows = [
@@ -71,6 +92,7 @@ function AdminDashboardPage() {
       aria-busy={isRefreshing}
       className="mx-auto max-w-[1600px] space-y-6 px-4 py-6 sm:px-6"
     >
+      {/* Phần tiêu đề trang, huy hiệu đồng bộ PostgreSQL và các nút hành động Xuất CSV / Làm mới */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -124,8 +146,10 @@ function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* Hiển thị khung xương (skeleton) trong lần tải dữ liệu đầu tiên */}
       {isLoading ? <DashboardSkeleton /> : null}
 
+      {/* Hiển thị trạng thái lỗi toàn màn hình nếu tải thất bại và chưa có dữ liệu cache */}
       {!isLoading && error && !data ? (
         <DashboardErrorState
           message={getDashboardErrorMessage(error)}
@@ -133,8 +157,10 @@ function AdminDashboardPage() {
         />
       ) : null}
 
+      {/* Nội dung chính của dashboard khi đã có dữ liệu */}
       {!isLoading && data ? (
         <div className="space-y-6">
+          {/* Banner cảnh báo khi làm mới nền gặp lỗi nhưng vẫn giữ dữ liệu cũ để tránh gián đoạn */}
           {error ? (
             <div
               className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 sm:flex-row sm:items-center sm:justify-between"
@@ -159,6 +185,7 @@ function AdminDashboardPage() {
           ) : null}
 
           {/* Live Database Ticket Counters */}
+          {/* Hàng thẻ KPI 1: Thống kê số lượng ticket theo các nhóm trạng thái chính */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <DashboardStatCard
               icon={Ticket}
@@ -190,6 +217,7 @@ function AdminDashboardPage() {
             />
           </div>
 
+          {/* Hàng thẻ KPI 2: Chỉ số chất lượng dịch vụ (MTTR, CSAT, tỷ lệ hoàn thành và cảnh báo P1) */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <DashboardStatCard
               icon={Clock3}
@@ -229,6 +257,7 @@ function AdminDashboardPage() {
             />
           </div>
 
+          {/* Lưới biểu đồ trực quan hóa dữ liệu ticket theo ngày, trạng thái SLA và danh mục */}
           <div className="grid min-w-0 gap-6 xl:grid-cols-2">
             <DashboardChartCard
               titleId="ticket-trend-title"
@@ -258,6 +287,7 @@ function AdminDashboardPage() {
             </DashboardChartCard>
           </div>
 
+          {/* Bảng ticket mới nhất kết hợp danh sách hiệu suất kỹ thuật viên */}
           <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(20rem,0.6fr)]">
             <LatestTicketsTable
               tickets={data.latestTickets}
@@ -270,6 +300,7 @@ function AdminDashboardPage() {
         </div>
       ) : null}
 
+      {/* Thông báo ẩn cho trình đọc màn hình khi dashboard đang đồng bộ lại dữ liệu */}
       {isRefreshing ? (
         <span className="sr-only" role="status" aria-live="polite">
           Đang làm mới dữ liệu dashboard...

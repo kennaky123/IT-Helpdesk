@@ -1,3 +1,16 @@
+/**
+ * @file TicketDetailHeader.jsx
+ * @description Component thanh tiêu đề đầu trang của màn hình chi tiết ticket.
+ *
+ * Props:
+ * - `ticket` {Object}: Dữ liệu ticket gồm `ticketCode`, `priority`, `category`, `status`, `title`, `createdAt`.
+ * - `backPath` {string}: Đường dẫn quay lại danh sách ticket (hiển thị ở màn hình nhỏ hơn `lg`).
+ * - `refreshing` {boolean}: Cờ cho biết dữ liệu ticket đang được làm mới để quay icon và khóa nút.
+ * - `onRefresh` {Function}: Callback kích hoạt tải lại thông tin ticket theo yêu cầu người dùng.
+ *
+ * Vai trò: Nằm ở trên cùng màn hình chi tiết ticket, tóm tắt nhanh mã ticket, mức độ ưu tiên,
+ * danh mục sự cố, chỉ số thời gian SLA còn lại, badge trạng thái và tiêu đề chính của yêu cầu.
+ */
 import { ArrowLeft, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 import { getSlaDisplayForTicket } from "../../../data/itsmData.js";
@@ -6,12 +19,17 @@ import {
   TicketStatusBadge,
 } from "../TicketBadges.jsx";
 
+/**
+ * Hiển thị thanh header tổng quan gồm metadata định danh, SLA, trạng thái và nút làm mới ticket.
+ */
 function TicketDetailHeader({ ticket, backPath, refreshing, onRefresh }) {
+  // Tính toán nhãn hiển thị, màu chữ và dấu chấm chỉ báo SLA dựa theo priority, status và createdAt
   const sla = getSlaDisplayForTicket(ticket);
 
   return (
     <header className="border-b border-brand-bone bg-white px-6 py-4 shadow-2xs">
       <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* Cụm thông tin định danh bên trái: nút quay lại (mobile/tablet), mã ticket, độ ưu tiên và danh mục */}
         <div className="flex flex-wrap items-center gap-2.5">
           <Link
             to={backPath}
@@ -29,6 +47,7 @@ function TicketDetailHeader({ ticket, backPath, refreshing, onRefresh }) {
           </span>
         </div>
 
+        {/* Cụm trạng thái bên phải: chỉ báo SLA, badge trạng thái xử lý và nút làm mới dữ liệu */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5 rounded-lg border border-brand-bone bg-brand-mist px-2.5 py-1 font-mono text-xs font-semibold">
             <span className="text-brand-slate">SLA:</span>
@@ -51,6 +70,7 @@ function TicketDetailHeader({ ticket, backPath, refreshing, onRefresh }) {
         </div>
       </div>
 
+      {/* Tiêu đề chính của ticket */}
       <h1 className="mt-2.5 font-display text-lg font-extrabold tracking-tight wrap-break-word text-brand-ink sm:text-xl">
         {ticket.title}
       </h1>

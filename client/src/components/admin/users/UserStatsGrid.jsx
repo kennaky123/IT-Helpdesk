@@ -1,5 +1,12 @@
+/**
+ * Lưới hiển thị các thẻ thống kê tổng quan về tài khoản người dùng trong module quản lý User của Admin.
+ *
+ * Props:
+ * - stats: Object chứa các chỉ số thống kê ({ total, active, locked, newThisMonth }).
+ */
 import { CalendarPlus, LockKeyhole, UserCheck, Users } from "lucide-react";
 
+// Cấu hình danh sách 4 thẻ thống kê kèm icon, tông màu và mô tả
 const CARDS = [
   { key: "total", label: "Tổng người dùng", icon: Users, tone: "bg-blue-50 text-blue-700", description: "Tất cả tài khoản hệ thống" },
   { key: "active", label: "Đang hoạt động", icon: UserCheck, tone: "bg-emerald-50 text-emerald-700", description: "Có thể đăng nhập hệ thống" },
@@ -7,9 +14,13 @@ const CARDS = [
   { key: "newThisMonth", label: "Mới trong tháng", icon: CalendarPlus, tone: "bg-violet-50 text-violet-700", description: "Tài khoản đăng ký mới" },
 ];
 
+/**
+ * Component hiển thị 4 thẻ số liệu thống kê người dùng theo bố cục lưới đáp ứng.
+ */
 function UserStatsGrid({ stats }) {
   return (
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Thống kê người dùng">
+      {/* Duyệt cấu hình CARDS để render từng thẻ chỉ số tương ứng từ stats */}
       {CARDS.map(({ key, label, icon: Icon, tone, description }) => (
         <article key={key} className="rounded-xl border border-[#E2E8F0] bg-white p-5 shadow-sm">
           <div className="flex items-start justify-between gap-4">

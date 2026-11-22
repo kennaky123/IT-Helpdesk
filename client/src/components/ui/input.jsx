@@ -1,6 +1,21 @@
+/**
+ * @fileoverview Component ô nhập liệu chuẩn Input (UI primitives Shadcn-style).
+ *
+ * Mục đích & vai trò:
+ * - Cung cấp UI primitive `<input>` đồng nhất về viền, chiều cao tối thiểu, focus-ring tím
+ *   và trạng thái disabled trên các biểu mẫu trong hệ thống.
+ *
+ * Props:
+ * - `className` {string}: Class CSS bổ sung.
+ * - `type` {string}: Kiểu input HTML (mặc định `"text"`).
+ * - `...props`: Các thuộc tính HTML chuẩn của thẻ `<input>` (chuyển tiếp cả `ref`).
+ */
 import { forwardRef } from "react";
 import { cn } from "../../lib/utils.js";
 
+/**
+ * Component Input sử dụng forwardRef để tương thích với các thư viện form hoặc ref DOM trực tiếp.
+ */
 const Input = forwardRef(function Input({ className, type = "text", ...props }, ref) {
   return (
     <input

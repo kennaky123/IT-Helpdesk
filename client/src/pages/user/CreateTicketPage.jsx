@@ -1,6 +1,13 @@
+/**
+ * @file CreateTicketPage.jsx
+ * @description Trang Tạo Ticket Yêu Cầu Hỗ Trợ Mới trên Cổng dịch vụ CNTT.
+ * @role User (Nhân viên nội bộ).
+ * @flow Hiển thị bố cục 2 cột: cột chính bên trái là `TicketRequestForm` (nhập tiêu đề, danh mục, tự phục vụ KB, đính kèm ảnh, gửi yêu cầu) và cột phụ bên phải là lưu ý gửi lỗi + bảng cam kết SLA.
+ */
 import { CheckCircle2, Clock3, Image, ShieldCheck, Sparkles } from "lucide-react";
 import TicketRequestForm from "../../components/ticket/create/TicketRequestForm.jsx";
 
+// Danh sách các lưu ý quan trọng giúp người dùng mô tả sự cố đầy đủ và an toàn bảo mật trước khi gửi ticket
 const SUPPORT_TIPS = [
   {
     icon: CheckCircle2,
@@ -21,6 +28,10 @@ const SUPPORT_TIPS = [
   },
 ];
 
+/**
+ * Component trang tạo ticket mới cho người dùng.
+ * Kết hợp form gửi ticket (`TicketRequestForm`) với thanh hướng dẫn quy chuẩn mô tả và cam kết thời gian xử lý SLA.
+ */
 function CreateTicketPage() {
   return (
     <section aria-labelledby="create-ticket-title">
@@ -41,8 +52,10 @@ function CreateTicketPage() {
       </div>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+        {/* Cột trái: Form nhập yêu cầu hỗ trợ (chọn danh mục, gợi ý KB tự phục vụ, mô tả, ảnh đính kèm) */}
         <TicketRequestForm />
 
+        {/* Cột phải: Thanh lưu ý trước khi gửi, cam kết SLA và hướng dẫn trợ lý tự phục vụ */}
         <aside
           className="space-y-4 xl:sticky xl:top-20"
           aria-label="Hướng dẫn tạo yêu cầu"

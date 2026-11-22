@@ -1,3 +1,23 @@
+/**
+ * @fileoverview Bảng danh sách bản quyền phần mềm với 2 giao diện theo vai trò (Software FinOps).
+ *
+ * Mục đích & vai trò:
+ * - Thuộc phân hệ Software FinOps, trình bày danh sách phần mềm công ty hoặc phần mềm đã cấp
+ *   cho cá nhân nhân viên tùy theo `role`:
+ *   + Vai trò `user`: Hiển thị thông tin phần mềm được cấp, thiết bị công ty gắn kèm, ngày cấp,
+ *     hạn dùng, nút sao chép License Key và liên kết mở trang Portal của hãng.
+ *   + Vai trò `admin` / `technician`: Hiển thị bảng quản trị kèm thanh tiến độ % phân bổ seats,
+ *     chi phí FinOps/tháng, ước tính chi phí lãng phí từ seat trống và các nút Cấp phát / DS dùng / Sửa / Xóa.
+ *
+ * Props:
+ * - `licenses` {Array}: Danh sách bản quyền phần mềm.
+ * - `role` {string}: Vai trò người dùng hiện tại (`"admin"`, `"technician"`, `"user"`).
+ * - `currentUserId` {string}: ID người dùng hiện tại để tra đúng bản ghi cấp phát ở chế độ `user`.
+ * - `onAllocate` {Function}: Callback mở modal cấp phát seat cho nhân viên.
+ * - `onViewUsers` {Function}: Callback mở drawer danh sách nhân viên đang dùng bản quyền.
+ * - `onEdit` {Function}: Callback mở modal chỉnh sửa gói bản quyền.
+ * - `onDelete` {Function}: Callback xóa gói bản quyền (chỉ dành cho `admin`).
+ */
 import {
   AppWindow,
   Calendar,
@@ -16,6 +36,7 @@ import { formatCurrencyVND } from "../../services/softwareService.js";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { formatTicketDateTime } from "../../utils/ticketPermissions.js";
 
+// Cấu hình badge trạng thái hết hạn của gói bản quyền
 const STATUS_CONFIG = {
   active: {
     label: "Đang Hoạt Động",
@@ -34,6 +55,7 @@ const STATUS_CONFIG = {
   },
 };
 
+// Cấu hình badge phân loại hình thức cấp phép bản quyền
 const TYPE_CONFIG = {
   saas_subscription: {
     label: "SaaS Cloud",
@@ -53,12 +75,16 @@ const TYPE_CONFIG = {
   },
 };
 
+// Ánh xạ mã chu kỳ thanh toán sang nhãn tiếng Việt
 const CYCLE_LABELS = {
   monthly: "Tháng",
   yearly: "Năm",
   one_time: "Một lần",
 };
 
+/**
+ * Component bảng hiển thị danh sách bản quyền phần mềm theo phân quyền người dùng.
+ */
 function SoftwareTable({
   licenses = [],
   role = "admin",
@@ -68,10 +94,12 @@ function SoftwareTable({
   onEdit,
   onDelete,
 }) {
+  // Lưu ID bản quyền vừa được copy key để đổi biểu tượng nút sang dấu check trong 2 giây
   const [copiedId, setCopiedId] = useState(null);
   const isUserRole = role === "user";
   const currentUserIdStr = currentUserId ? String(currentUserId) : "";
 
+  // Luồng sao chép License Key vào clipboard, bật phản hồi trực quan và hiển thị toast
   async function handleCopyKey(license) {
     if (!license.licenseKey) return;
     try {
@@ -86,9 +114,11 @@ function SoftwareTable({
     }
   }
 
+  // Nhánh giao diện dành riêng cho nhân viên (chỉ xem phần mềm được cấp, chép key và mở portal)
   if (isUserRole) {
     return (
       <div className="overflow-x-auto">
+        {/* Bảng dành riêng cho nhân viên: chỉ xem phần mềm được cấp và thiết bị gắn kèm */}
         <table className="w-full text-left text-sm">
           <thead className="bg-brand-mist/60 text-[11px] font-bold text-brand-slate uppercase tracking-wider border-b border-brand-bone">
             <tr>
@@ -109,6 +139,7 @@ function SoftwareTable({
               </tr>
             ) : (
               licenses.map((license) => {
+                // Tra cứu badge trạng thái, hình thức bản quyền và entry cấp phát khớp với currentUserId
                 const statusCfg = STATUS_CONFIG[license.status] || STATUS_CONFIG.active;
                 const typeCfg = TYPE_CONFIG[license.type] || {
                   label: license.type,
@@ -225,6 +256,7 @@ function SoftwareTable({
                       </div>
                     </td>
 
+                    {/* Cột hành động của nhân viên: sao chép License Key và mở Portal nhà cung cấp */}
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         {license.licenseKey && (
@@ -267,6 +299,7 @@ function SoftwareTable({
     );
   }
 
+  // Nhánh giao diện quản trị dành cho Admin và Technician (kèm phân bổ seats, chi phí FinOps và thao tác CRUD)
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
@@ -289,6 +322,7 @@ function SoftwareTable({
             </tr>
           ) : (
             licenses.map((license) => {
+              // Tra cứu cấu hình badge và tính toán tỷ lệ lấp đầy seat cùng màu thanh tiến độ
               const statusCfg = STATUS_CONFIG[license.status] || STATUS_CONFIG.active;
               const typeCfg = TYPE_CONFIG[license.type] || {
                 label: license.type,
@@ -301,10 +335,12 @@ function SoftwareTable({
                 total > 0 ? Math.min(100, Math.round((assigned / total) * 100)) : 0;
               const available = Math.max(0, total - assigned);
 
+              // Đổi màu thanh tiến độ theo ngưỡng sử dụng: đỏ (100%), vàng (>=85%), xanh lá (<85%)
               let progressColor = "bg-emerald-500";
               if (percent === 100) progressColor = "bg-red-500";
               else if (percent >= 85) progressColor = "bg-amber-500";
 
+              // Định dạng đơn giá mỗi seat và tổng chi phí quy đổi theo tháng phục vụ theo dõi FinOps
               const costPerSeatText =
                 license.costPerSeat > 0
                   ? `${formatCurrencyVND(license.costPerSeat)}/${CYCLE_LABELS[license.billingCycle] || "seat"}`

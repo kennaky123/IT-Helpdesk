@@ -1,7 +1,25 @@
+/**
+ * TicketFilters.jsx
+ *
+ * Chức năng: Thanh công cụ tìm kiếm và lọc danh sách ticket theo trạng thái, mức độ ưu tiên,
+ * danh mục, kỹ thuật viên phụ trách và thứ tự sắp xếp.
+ * Props:
+ * - `query` (object): Trạng thái truy vấn hiện tại (`search`, `status`, `priority`, `category`, `technician`, `sortOrder`, `page`).
+ * - `filterOptions` (object): Dữ liệu tùy chọn động gồm `categories` và `technicians`.
+ * - `optionsError` (Error|null): Lỗi khi tải danh mục/kỹ thuật viên nếu xảy ra.
+ * - `optionsLoading` (boolean): Cờ báo đang tải danh sách tùy chọn bộ lọc.
+ * - `activeFilterCount` (number): Số lượng bộ lọc đang áp dụng.
+ * - `hasActiveFilters` (boolean): Cờ cho biết có đang bật ít nhất một bộ lọc hay không.
+ * - `onFilterChange` (function): Callback cập nhật một trường bộ lọc `(field, value)`.
+ * - `onReset` (function): Callback đặt lại toàn bộ bộ lọc về mặc định.
+ * - `onRetryOptions` (function): Callback tải lại các tùy chọn danh mục/kỹ thuật viên khi gặp lỗi.
+ * Vai trò: Điều phối cơ chế lọc kết hợp (pills lọc nhanh + ô tìm kiếm submit + dropdown) trong luồng danh sách ticket.
+ */
 import { RotateCcw, Search } from "lucide-react";
 import { useRef } from "react";
 import { getTicketListErrorMessage } from "../../services/ticketService.js";
 
+// Danh sách tùy chọn trạng thái ticket dùng cho dropdown lọc
 const STATUS_OPTIONS = [
   { value: "pending", label: "Mới Tiếp Nhận" },
   { value: "assigned", label: "Đã Phân Công" },
@@ -12,6 +30,7 @@ const STATUS_OPTIONS = [
   { value: "cancelled", label: "Đã Hủy" },
 ];
 
+// Danh sách tùy chọn mức độ ưu tiên (P1–P4) dùng cho dropdown lọc
 const PRIORITY_OPTIONS = [
   { value: "urgent", label: "P1 - Khẩn Cấp" },
   { value: "high", label: "P2 - Cao" },
@@ -19,9 +38,11 @@ const PRIORITY_OPTIONS = [
   { value: "low", label: "P4 - Thấp" },
 ];
 
+// Chuỗi class Tailwind dùng chung cho các thẻ `<select>` bộ lọc
 const selectClasses =
   "rounded-lg border border-brand-bone bg-brand-mist px-3 py-1.5 text-xs font-semibold text-brand-ink outline-none transition focus:border-brand-violet focus:bg-white disabled:cursor-not-allowed disabled:opacity-50";
 
+// Component thanh tìm kiếm và bộ lọc đa tiêu chí cho danh sách ticket
 function TicketFilters({
   query,
   filterOptions,
@@ -33,14 +54,17 @@ function TicketFilters({
   onReset,
   onRetryOptions,
 }) {
+  // Ref tham chiếu ô tìm kiếm uncontrolled để chỉ áp dụng từ khóa khi người dùng nhấn Enter/submit
   const searchInputRef = useRef(null);
   const categories = filterOptions?.categories ?? [];
   const technicians = filterOptions?.technicians ?? [];
+  // Phát hiện trường hợp URL/query đang giữ ID danh mục hoặc kỹ thuật viên không nằm trong options tải về (để giữ lựa chọn tạm)
   const categoryIsMissing =
     query.category && !categories.some((item) => item.id === query.category);
   const technicianIsMissing =
     query.technician &&
     !technicians.some((item) => item.id === query.technician);
+  // Key thay đổi theo query giúp reset giá trị `defaultValue` của ô input tìm kiếm khi bộ lọc được đặt lại từ bên ngoài
   const searchInputKey = [
     query.search,
     query.status,
@@ -51,11 +75,13 @@ function TicketFilters({
     query.page,
   ].join("|");
 
+  // Handler xử lý submit form tìm kiếm: ngăn reload trang và đẩy từ khóa hiện tại lên `onFilterChange`
   function handleSearchSubmit(event) {
     event.preventDefault();
     onFilterChange("search", searchInputRef.current?.value ?? "");
   }
 
+  // Tính toán pill lọc nhanh đang sáng đèn dựa trên trạng thái và mức độ ưu tiên hiện hành
   const activePill = !query.status && !query.priority
     ? "all"
     : query.priority === "urgent"
@@ -76,8 +102,10 @@ function TicketFilters({
       </h2>
 
       {/* Top Row: Quick Filter Pills & Search */}
+      {/* Hàng trên: nhóm nút lọc nhanh (pills) bên trái và ô tìm kiếm + các dropdown lọc chi tiết bên phải */}
       <div className="flex flex-col items-stretch justify-between gap-3 lg:flex-row lg:items-center">
         {/* Quick Filter Pills from DeskPro IT */}
+        {/* Nhóm nút lọc nhanh trạng thái phổ biến và ticket khẩn cấp P1 (bấm lại lần nữa để bỏ chọn) */}
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
@@ -133,6 +161,7 @@ function TicketFilters({
         </div>
 
         {/* Right Side: Search + Select Filters */}
+        {/* Nhóm ô tìm kiếm văn bản (submit bằng Enter) và các bộ lọc dropdown trạng thái, mức độ, danh mục, kỹ thuật viên, sắp xếp */}
         <div className="flex flex-wrap items-center gap-2">
           <form
             className="relative min-w-56 flex-1 sm:flex-initial"
@@ -156,6 +185,7 @@ function TicketFilters({
             />
           </form>
 
+          {/* Dropdown lọc theo trạng thái ticket */}
           <select
             id="status-filter"
             aria-label="Lọc theo trạng thái"
@@ -171,6 +201,7 @@ function TicketFilters({
             ))}
           </select>
 
+          {/* Dropdown lọc theo mức độ ưu tiên */}
           <select
             id="priority-filter"
             aria-label="Lọc theo mức độ ưu tiên"
@@ -186,6 +217,7 @@ function TicketFilters({
             ))}
           </select>
 
+          {/* Dropdown lọc theo danh mục sự cố (vô hiệu hóa khi đang tải danh mục) */}
           <select
             id="category-filter"
             aria-label="Lọc theo danh mục"
@@ -207,6 +239,7 @@ function TicketFilters({
             ))}
           </select>
 
+          {/* Dropdown lọc theo kỹ thuật viên phụ trách (vô hiệu hóa khi đang tải danh sách kỹ thuật viên) */}
           <select
             id="technician-filter"
             aria-label="Lọc theo kỹ thuật viên"
@@ -230,6 +263,7 @@ function TicketFilters({
             ))}
           </select>
 
+          {/* Dropdown đổi thứ tự sắp xếp thời gian tạo mới nhất / cũ nhất */}
           <select
             id="sort-filter"
             aria-label="Sắp xếp"
@@ -243,6 +277,7 @@ function TicketFilters({
             <option value="asc">Cũ nhất trước</option>
           </select>
 
+          {/* Nút đặt lại toàn bộ bộ lọc, chỉ hiển thị khi có ít nhất 1 bộ lọc đang kích hoạt */}
           {hasActiveFilters ? (
             <button
               type="button"
@@ -256,6 +291,7 @@ function TicketFilters({
         </div>
       </div>
 
+      {/* Khối cảnh báo khi tải danh sách danh mục/kỹ thuật viên thất bại kèm nút tải lại */}
       {optionsError ? (
         <div
           className="mt-3 flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:flex-row sm:items-center sm:justify-between"

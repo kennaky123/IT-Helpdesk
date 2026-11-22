@@ -1,10 +1,20 @@
+/*
+ * Stylesheet chính toàn cục cho ứng dụng frontend IT Helpdesk.
+ * Vai trò: Nạp Tailwind CSS v4, khai báo Design Tokens (@theme), thiết lập style nền tảng
+ * cho HTML/Body, tùy biến thanh cuộn và định nghĩa các animation chuyên biệt (SLA, luồng mạng).
+ */
+
+/* Nạp toàn bộ lõi tiện ích của Tailwind CSS v4 */
 @import "tailwindcss";
 
+/* Khai báo Design Tokens cho font chữ và bảng màu thương hiệu (sinh tự động các class như bg-brand-violet, font-display) */
 @theme {
+  /* Nhóm font tiêu đề, nội dung chính và mã/số liệu kỹ thuật */
   --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
+  /* Bảng màu chủ đạo và trung tính của giao diện DeskPro IT */
   --color-brand-violet: #6647f0;
   --color-brand-blue: #0091ff;
   --color-brand-mint: #6ee7b7;
@@ -19,6 +29,7 @@
   --color-brand-plaster: #e9ebf0;
 }
 
+/* Thiết lập mặc định cấp gốc: font chữ chuẩn, màu chữ/nền và tối ưu hiển thị chữ */
 :root {
   font-family:
     "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -29,6 +40,7 @@
   text-rendering: optimizeLegibility;
 }
 
+/* Đảm bảo thân trang luôn chiếm tối thiểu toàn bộ chiều cao khung nhìn */
 body {
   min-width: 320px;
   min-height: 100vh;
@@ -37,10 +49,12 @@ body {
   color: #202020;
 }
 
+/* Khung mount gốc của React */
 #root {
   min-height: 100vh;
 }
 
+/* Kế thừa font chữ cho các điều khiển form thay vì dùng font mặc định của trình duyệt */
 button,
 input,
 textarea,
@@ -48,16 +62,18 @@ select {
   font: inherit;
 }
 
+/* Hiển thị con trỏ bàn tay cho nút bấm đang khả dụng */
 button:not(:disabled) {
   cursor: pointer;
 }
 
+/* Màu nền và chữ khi người dùng bôi đen văn bản */
 ::selection {
   color: #ffffff;
   background: #6647f0;
 }
 
-/* Custom scrollbars */
+/* Custom scrollbars — Thanh cuộn mảnh, đồng bộ giao diện hiện đại trên trình duyệt WebKit */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -73,7 +89,7 @@ button:not(:disabled) {
   background: #b3b3b3;
 }
 
-/* Live pulsing indicator for P1 SLA breach */
+/* Live pulsing indicator for P1 SLA breach — Hiệu ứng nhấp nháy cảnh báo ticket sắp/đã quá hạn SLA */
 @keyframes pulse-ring {
   0% {
     transform: scale(0.95);
@@ -88,25 +104,29 @@ button:not(:disabled) {
     box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
   }
 }
+/* Gắn animation cảnh báo vòng sáng đỏ cho chấm trạng thái SLA khẩn cấp */
 .pulse-sla {
   animation: pulse-ring 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
 }
 
-/* Animated network traffic flow */
+/* Animated network traffic flow — Hiệu ứng nét đứt chuyển động mô phỏng luồng dữ liệu trên sơ đồ SVG */
 @keyframes dash {
   to {
     stroke-dashoffset: -30;
   }
 }
+/* Luồng lưu lượng mạng bình thường (tốc độ vừa) */
 .flow-normal {
   stroke-dasharray: 6, 6;
   animation: dash 1.5s linear infinite;
 }
+/* Luồng lưu lượng cảnh báo (tốc độ nhanh hơn) */
 .flow-warning {
   stroke-dasharray: 6, 6;
   animation: dash 0.8s linear infinite;
 }
 
+/* Tôn trọng tùy chọn giảm chuyển động của hệ điều hành để hỗ trợ khả năng tiếp cận (Accessibility) */
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

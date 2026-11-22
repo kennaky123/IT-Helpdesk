@@ -1,10 +1,25 @@
+/**
+ * Danh sách theo dõi và trực quan hóa hiệu suất xử lý ticket của từng kỹ thuật viên trên Dashboard.
+ *
+ * Props:
+ * - technicians: Mảng đối tượng thống kê theo kỹ thuật viên (technicianId, name, inProgress, completed).
+ *
+ * Vai trò trong Dashboard:
+ * - Đặt cạnh bảng ticket mới nhất để quản trị viên so sánh nhanh khối lượng việc đang xử lý
+ *   với số lượng ticket đã hoàn thành SLA của từng kỹ thuật viên thông qua thanh tỷ lệ trực quan.
+ */
 import { UsersRound } from "lucide-react";
 import {
   formatDashboardNumber,
   getNameInitials,
 } from "../../utils/dashboardFormatters.js";
 
+/**
+ * Render danh sách kỹ thuật viên kèm hai thanh tiến trình so sánh số ticket đang xử lý và đã hoàn thành.
+ */
 function TechnicianPerformanceList({ technicians }) {
+  // Tìm giá trị lớn nhất trong toàn bộ số liệu đang xử lý & hoàn thành (tối thiểu là 1 để tránh chia cho 0)
+  // nhằm chuẩn hóa chiều rộng phần trăm thanh tiến trình theo cùng một tỷ lệ chung.
   const maximumValue = Math.max(
     1,
     ...technicians.flatMap((item) => [item.inProgress, item.completed]),
@@ -42,6 +57,7 @@ function TechnicianPerformanceList({ technicians }) {
       ) : (
         <ul className="custom-scrollbar max-h-[32rem] divide-y divide-brand-bone overflow-y-auto">
           {technicians.map((technician) => {
+            // Tính chiều rộng % cho 2 thanh tiến trình dựa trên giá trị lớn nhất toàn đội ngũ.
             const inProgressWidth =
               (technician.inProgress / maximumValue) * 100;
             const completedWidth = (technician.completed / maximumValue) * 100;

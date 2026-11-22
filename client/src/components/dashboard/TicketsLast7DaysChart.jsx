@@ -1,3 +1,12 @@
+/**
+ * Biểu đồ cột đứng (Recharts BarChart) biểu diễn xu hướng số lượng ticket mới phát sinh trong 7 ngày gần nhất.
+ *
+ * Props:
+ * - data: Mảng thống kê theo ngày (mỗi phần tử gồm { date, name, value }).
+ *
+ * Vai trò trong Dashboard (Recharts):
+ * - Chiếm hàng biểu đồ xu hướng chính trên Dashboard, dùng ResponsiveContainer để tự co giãn theo độ rộng card.
+ */
 import {
   Bar,
   BarChart,
@@ -10,6 +19,9 @@ import {
 import { formatDashboardNumber } from "../../utils/dashboardFormatters.js";
 import ChartEmptyState from "./ChartEmptyState.jsx";
 
+/**
+ * Tooltip tùy biến của Recharts hiển thị nhãn ngày và số ticket phát sinh trong ngày đó.
+ */
 function TrendTooltip({ active, payload, label }) {
   if (!active || !payload?.[0]) {
     return null;
@@ -25,7 +37,11 @@ function TrendTooltip({ active, payload, label }) {
   );
 }
 
+/**
+ * Render biểu đồ cột xu hướng 7 ngày qua; chuyển sang ChartEmptyState nếu cả 7 ngày đều có giá trị 0.
+ */
 function TicketsLast7DaysChart({ data }) {
+  // Kiểm tra xem có ít nhất một ngày phát sinh ticket hay không trước khi vẽ biểu đồ.
   const hasTickets = data.some((item) => item.value > 0);
 
   if (!hasTickets) {
@@ -82,6 +98,7 @@ function TicketsLast7DaysChart({ data }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
+      {/* Danh sách ẩn phục vụ trình đọc màn hình (screen reader) đọc lại số liệu từng ngày */}
       <ul className="sr-only">
         {data.map((item) => (
           <li key={item.date}>

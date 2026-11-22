@@ -1,3 +1,9 @@
+/**
+ * @file TechnicianOverviewPage.jsx
+ * @description Trang tổng quan bàn làm việc kỹ thuật viên (Agent Workspace), hiển thị chỉ số ticket, hàng đợi cần xử lý và tỷ lệ hoàn tất SLA tháng.
+ * @role Technician (Kỹ thuật viên IT).
+ * @flow Gọi hook `useTechnicianDashboard()` lấy số liệu tổng hợp & danh sách `workTickets`; xử lý trạng thái loading/lỗi/thành công và điều hướng vào chi tiết ticket kèm đường dẫn nguồn theo trạng thái.
+ */
 import {
   CheckCircle2,
   CircleGauge,
@@ -17,7 +23,12 @@ import {
 import useTechnicianDashboard from "../../hooks/useTechnicianDashboard.js";
 import { getDashboardErrorMessage } from "../../services/dashboardService.js";
 
+/**
+ * Component trang tổng quan dành cho kỹ thuật viên IT.
+ * Quản lý việc fetch dữ liệu dashboard qua React Query và điều phối hiển thị skeleton, lỗi hoặc nội dung chính.
+ */
 function TechnicianOverviewPage() {
+  // Hook tải dữ liệu tổng quan của kỹ thuật viên (tự động refetch mỗi 30 giây)
   const { data, error, isLoading, refetch } = useTechnicianDashboard();
 
   return (
@@ -37,6 +48,7 @@ function TechnicianOverviewPage() {
         }
       />
 
+      {/* Hiển thị khung xương tải dữ liệu, trạng thái lỗi kèm nút thử lại hoặc nội dung dashboard */}
       {isLoading ? <DashboardSkeleton /> : null}
       {!isLoading && error ? (
         <DashboardErrorState
@@ -51,12 +63,19 @@ function TechnicianOverviewPage() {
   );
 }
 
+/**
+ * Component con hiển thị nội dung chính của Dashboard Kỹ thuật viên:
+ * gồm 4 thẻ thống kê KPI, danh sách hàng đợi ticket cần xử lý ngay và thẻ tỷ lệ hoàn tất SLA tháng.
+ */
 function TechnicianDashboardContent({ dashboard }) {
+  // Tách số liệu thống kê tổng quan và danh sách ticket ưu tiên từ dữ liệu API
   const { summary, workTickets } = dashboard;
+  // Giới hạn tỷ lệ hoàn tất SLA tối đa 100% để thanh tiến trình không vượt khung
   const completionRate = Math.min(100, summary.completionRate);
 
   return (
     <>
+      {/* 4 thẻ chỉ số tổng quan: Chờ tiếp nhận, Đang xử lý, Khẩn cấp (P1), Hoàn thành tuần này */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <WorkspaceStatCard
           icon={Ticket}
@@ -88,6 +107,7 @@ function TechnicianDashboardContent({ dashboard }) {
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(20rem,.6fr)]">
+        {/* Cột trái: Hàng đợi ticket cần xử lý, điều hướng vào chi tiết kèm state.navigationPath theo trạng thái ticket */}
         <section className="overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs">
           <div className="flex items-center justify-between gap-4 border-b border-brand-bone px-5 py-4">
             <div>
@@ -146,6 +166,7 @@ function TechnicianDashboardContent({ dashboard }) {
           )}
         </section>
 
+        {/* Cột phải: Thẻ theo dõi tỷ lệ hoàn tất SLA tháng này của kỹ thuật viên */}
         <aside className="space-y-4">
           <section className="rounded-xl border border-brand-bone bg-white p-5 shadow-xs">
             <div className="flex items-center justify-between">

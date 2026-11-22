@@ -1,20 +1,34 @@
+/**
+ * TicketList.jsx
+ *
+ * Chức năng: Hiển thị danh sách ticket theo hai bố cục đáp ứng: danh sách thẻ trên màn hình nhỏ (`< xl`)
+ * và bảng mật độ cao 8 cột trên desktop (`>= xl`), tích hợp chọn nhiều ticket và tính toán hiển thị hạn SLA.
+ * Props:
+ * - `tickets` (Array): Mảng các đối tượng ticket đã phân trang từ API.
+ * - `basePath` (string, mặc định `"/admin/tickets"`): Đường dẫn gốc để điều hướng tới trang chi tiết từng ticket.
+ * Vai trò: Component trình bày dữ liệu cốt lõi trong luồng danh sách ticket, giúp người dùng/kỹ thuật viên/admin
+ * theo dõi nhanh mã ticket, mức độ ưu tiên, trạng thái, hạn SLA, người yêu cầu và kỹ thuật viên phụ trách.
+ */
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { getSlaDisplayForTicket } from "../../data/itsmData.js";
 import { TicketPriorityBadge, TicketStatusBadge } from "./TicketBadges.jsx";
 
+// Bộ định dạng ngày giờ chuẩn Việt Nam theo múi giờ Asia/Ho_Chi_Minh
 const dateTimeFormatter = new Intl.DateTimeFormat("vi-VN", {
   dateStyle: "short",
   timeStyle: "short",
   timeZone: "Asia/Ho_Chi_Minh",
 });
 
+// Helper chuyển đổi chuỗi thời gian ISO sang định dạng ngày giờ ngắn; trả về "—" nếu không hợp lệ
 function formatCreatedAt(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : dateTimeFormatter.format(date);
 }
 
+// Helper lấy 2 ký tự viết tắt từ họ tên kỹ thuật viên để hiển thị trong avatar tròn
 function getInitials(name = "") {
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "IT";
@@ -22,13 +36,17 @@ function getInitials(name = "") {
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 }
 
+// Component danh sách ticket hỗ trợ chọn dòng hàng loạt (trên bảng desktop) và điều hướng chi tiết
 function TicketList({ tickets, basePath = "/admin/tickets" }) {
   const navigate = useNavigate();
+  // State lưu mảng `_id` các ticket đang được tick checkbox trên bảng desktop
   const [selectedIds, setSelectedIds] = useState([]);
 
+  // Kiểm tra đã chọn tất cả ticket trong trang hiện tại hay chưa để đồng bộ checkbox ở tiêu đề bảng
   const allSelected =
     tickets.length > 0 && selectedIds.length === tickets.length;
 
+  // Handler chọn toàn bộ hoặc bỏ chọn toàn bộ ticket đang hiển thị
   function toggleSelectAll(checked) {
     if (checked) {
       setSelectedIds(tickets.map((t) => t._id));
@@ -37,6 +55,7 @@ function TicketList({ tickets, basePath = "/admin/tickets" }) {
     }
   }
 
+  // Handler bật/tắt trạng thái chọn cho một ticket theo `ticketId`
   function toggleRowSelection(ticketId) {
     setSelectedIds((prev) =>
       prev.includes(ticketId)
@@ -45,6 +64,7 @@ function TicketList({ tickets, basePath = "/admin/tickets" }) {
     );
   }
 
+  // Handler click vào hàng bảng để mở trang chi tiết; bỏ qua nếu click trúng phần tử tương tác con (link, nút, checkbox...)
   function handleRowClick(event, ticketId) {
     if (event.target.closest("a, button, input, select, textarea, label")) {
       return;
@@ -59,6 +79,7 @@ function TicketList({ tickets, basePath = "/admin/tickets" }) {
       </h2>
 
       {/* Bulk Action Bar (Shown when checkboxes selected) */}
+      {/* Thanh thao tác nhanh chỉ hiển thị khi có ít nhất 1 ticket được tick chọn trên bảng */}
       {selectedIds.length > 0 ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-brand-violet/20 bg-brand-violet/10 px-4 py-2.5">
           <div className="flex items-center gap-2 text-xs font-semibold text-brand-violet">
@@ -89,8 +110,10 @@ function TicketList({ tickets, basePath = "/admin/tickets" }) {
       ) : null}
 
       {/* Mobile Cards */}
+      {/* Chế độ hiển thị dạng thẻ dành cho màn hình nhỏ hơn `xl` */}
       <ul className="divide-y divide-brand-bone xl:hidden">
         {tickets.map((ticket) => {
+          // Tính nhãn và màu cảnh báo hạn SLA còn lại/quá hạn của từng ticket
           const sla = getSlaDisplayForTicket(ticket);
           return (
             <li key={ticket._id}>
@@ -111,6 +134,7 @@ function TicketList({ tickets, basePath = "/admin/tickets" }) {
                   <TicketPriorityBadge priority={ticket.priority} />
                 </div>
 
+                {/* Dòng badge trạng thái xử lý và chỉ báo SLA */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <TicketStatusBadge status={ticket.status} />
                   <span
@@ -154,6 +178,7 @@ function TicketList({ tickets, basePath = "/admin/tickets" }) {
       </ul>
 
       {/* Desktop High-Density Table (Matches DeskPro IT View 1) */}
+      {/* Chế độ bảng 8 cột mật độ cao dành cho màn hình `xl` trở lên */}
       <div className="hidden overflow-x-auto xl:block">
         <table className="w-full border-collapse text-left">
           <thead>
@@ -192,6 +217,7 @@ function TicketList({ tickets, basePath = "/admin/tickets" }) {
           </thead>
           <tbody className="divide-y divide-brand-bone text-sm">
             {tickets.map((ticket) => {
+              // Tính thông số hiển thị SLA, trạng thái tick chọn và tên kỹ thuật viên phụ trách cho từng dòng
               const sla = getSlaDisplayForTicket(ticket);
               const isSelected = selectedIds.includes(ticket._id);
               const assigneeName = ticket.assignedTo?.fullName;
@@ -206,6 +232,7 @@ function TicketList({ tickets, basePath = "/admin/tickets" }) {
                       : "hover:bg-brand-violet/[0.03]"
                   }`}
                 >
+                  {/* Ô checkbox chọn dòng; ngăn sự kiện nổi bọt để không điều hướng nhầm khi tick */}
                   <td
                     className="px-4 py-3.5 text-center"
                     onClick={(e) => e.stopPropagation()}
@@ -249,6 +276,7 @@ function TicketList({ tickets, basePath = "/admin/tickets" }) {
                   <td className="px-3 py-3.5 whitespace-nowrap">
                     <TicketStatusBadge status={ticket.status} />
                   </td>
+                  {/* Cột hiển thị thời hạn SLA kèm chấm màu cảnh báo (xanh/vàng/đỏ/nhấp nháy) */}
                   <td className="px-3 py-3.5 whitespace-nowrap">
                     <div className="flex items-center gap-1.5 font-mono text-xs font-semibold">
                       <span
@@ -269,6 +297,7 @@ function TicketList({ tickets, basePath = "/admin/tickets" }) {
                       </span>
                     </div>
                   </td>
+                  {/* Cột kỹ thuật viên phụ trách: hiển thị avatar viết tắt + tên nếu đã gán, ngược lại hiện nhãn "+ Nhận xử lý" */}
                   <td className="px-4 py-3.5">
                     {assigneeName ? (
                       <div className="flex items-center gap-2">

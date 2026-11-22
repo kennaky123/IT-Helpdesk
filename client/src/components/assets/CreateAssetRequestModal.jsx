@@ -1,23 +1,39 @@
+/**
+ * Modal tạo yêu cầu cấp phát thiết bị mới gửi cho bộ phận Kỹ thuật viên (Technician) trong module quản lý tài sản (Asset).
+ * Tải song song danh sách nhân viên và kỹ thuật viên, cho phép chọn nhân viên nhận, loại thiết bị, kỹ thuật viên phụ trách (tùy chọn) và ghi chú cấu hình.
+ *
+ * Props:
+ * - onClose: Callback đóng modal.
+ * - onCreated: Callback(created) được gọi sau khi tạo yêu cầu cấp phát thành công.
+ */
 import { useEffect, useState } from "react";
 import { Laptop, Send, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { createAssetRequest, getAssignableEmployees } from "../../services/assetService.js";
 import { getAdminTechnicians } from "../../services/adminService.js";
 
+/**
+ * Component modal tạo yêu cầu xuất kho/cấp phát laptop hoặc thiết bị cho nhân viên.
+ */
 function CreateAssetRequestModal({ onClose, onCreated }) {
+  // Danh sách nhân viên nhận thiết bị và danh sách kỹ thuật viên có thể chỉ định
   const [employees, setEmployees] = useState([]);
   const [technicians, setTechnicians] = useState([]);
+  // State lưu giá trị các trường form yêu cầu cấp phát
   const [employeeId, setEmployeeId] = useState("");
   const [technicianId, setTechnicianId] = useState("");
   const [assetType, setAssetType] = useState("laptop");
   const [note, setNote] = useState("");
+  // Trạng thái tải danh sách nhân sự ban đầu và trạng thái đang submit form
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Effect tải đồng thời danh sách nhân viên và kỹ thuật viên khi modal mount
   useEffect(() => {
     const controller = new AbortController();
     Promise.all([
       getAssignableEmployees({ signal: controller.signal }),
+      // Nếu lỗi tải danh sách KTV vẫn cho phép tạo yêu cầu ở trạng thái để mở
       getAdminTechnicians({ signal: controller.signal }).catch(() => []),
     ])
       .then(([empList, techList]) => {
@@ -34,8 +50,10 @@ function CreateAssetRequestModal({ onClose, onCreated }) {
     return () => controller.abort();
   }, []);
 
+  // Handler kiểm tra chọn nhân viên và gửi API tạo yêu cầu cấp phát thiết bị
   async function handleSubmit(e) {
     e.preventDefault();
+    // Validate bắt buộc chọn nhân viên cần cấp thiết bị
     if (!employeeId) {
       toast.warning("Vui lòng chọn nhân viên cần được cấp laptop/thiết bị.");
       return;
@@ -61,11 +79,13 @@ function CreateAssetRequestModal({ onClose, onCreated }) {
   return (
     <div
       onClick={(e) => {
+        // Chỉ đóng modal khi click ra vùng nền ngoài và không đang gửi API
         if (e.target === e.currentTarget && !isSubmitting) onClose();
       }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
     >
       <div className="w-full max-w-lg bg-white rounded-2xl border border-brand-bone shadow-2xl overflow-hidden">
+        {/* Đầu modal hiển thị tiêu đề và nút đóng */}
         <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100 text-brand-violet">
@@ -89,7 +109,9 @@ function CreateAssetRequestModal({ onClose, onCreated }) {
           </button>
         </div>
 
+        {/* Form tạo yêu cầu cấp phát thiết bị */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {/* Chọn nhân viên thụ hưởng */}
           <div>
             <label className="block text-xs font-semibold text-brand-ink mb-1.5">
               Nhân Viên Cần Cấp Thiết Bị <span className="text-red-500">*</span>
@@ -113,6 +135,7 @@ function CreateAssetRequestModal({ onClose, onCreated }) {
             )}
           </div>
 
+          {/* Chọn loại thiết bị và kỹ thuật viên phụ trách (tùy chọn) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-brand-ink mb-1.5">
@@ -150,6 +173,7 @@ function CreateAssetRequestModal({ onClose, onCreated }) {
             </div>
           </div>
 
+          {/* Ghi chú nhu cầu cấu hình hoặc phần mềm cần cài sẵn */}
           <div>
             <label className="block text-xs font-semibold text-brand-ink mb-1">
               Ghi Chú Nhu Cầu / Cấu Hình Yêu Cầu
@@ -163,6 +187,7 @@ function CreateAssetRequestModal({ onClose, onCreated }) {
             />
           </div>
 
+          {/* Hàng nút Hủy và Gửi yêu cầu */}
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-brand-bone">
             <button
               type="button"

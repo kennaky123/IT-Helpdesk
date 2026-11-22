@@ -1,3 +1,10 @@
+/**
+ * Dữ liệu nghiệp vụ ITSM tĩnh và bộ công cụ tính toán SLA (Service Level Agreement).
+ * Vai trò: Cung cấp bài viết cơ sở tri thức (KB_ARTICLES) cho người dùng tự tra cứu,
+ * mẫu câu trả lời nhanh (CANNED_RESPONSES) cho kỹ thuật viên và hàm hiển thị trạng thái SLA.
+ */
+
+// Danh sách bài viết Cơ sở tri thức (Knowledge Base) phổ biến về VPN, máy in, mật khẩu, Office 365
 export const KB_ARTICLES = [
   {
     id: "kb-01",
@@ -49,6 +56,7 @@ export const KB_ARTICLES = [
   },
 ];
 
+// Danh sách mẫu câu phản hồi nhanh giúp Kỹ thuật viên trả lời ticket nhất quán và tiết kiệm thời gian
 export const CANNED_RESPONSES = [
   {
     id: "vpn-steps",
@@ -76,6 +84,7 @@ export const CANNED_RESPONSES = [
   },
 ];
 
+// Định mức thời gian mục tiêu SLA (tính bằng phút) tương ứng với từng mức độ ưu tiên của ticket
 const SLA_TARGET_MINUTES = {
   urgent: 120,
   high: 240,
@@ -83,6 +92,9 @@ const SLA_TARGET_MINUTES = {
   low: 1440,
 };
 
+/**
+ * Quy đổi khoảng thời gian mili-giây thành chuỗi dễ đọc dạng "Xh Yp" hoặc "Yp".
+ */
 function formatSlaDuration(ms) {
   const totalMinutes = Math.max(1, Math.round(Math.abs(ms) / 60_000));
   const hours = Math.floor(totalMinutes / 60);
@@ -90,10 +102,16 @@ function formatSlaDuration(ms) {
   return hours > 0 ? `${hours}h ${minutes}p` : `${minutes}p`;
 }
 
+/**
+ * Tính toán nhãn, màu chữ và hiệu ứng chấm trạng thái SLA cho một ticket.
+ * - Ticket đã đóng/giải quyết -> "Đạt SLA"; đã hủy -> "Đã hủy".
+ * - Ticket đang mở -> so sánh (createdAt + định mức ưu tiên) với thời điểm hiện tại để cảnh báo quá hạn hoặc sắp đến hạn.
+ */
 export function getSlaDisplayForTicket(ticket) {
   if (!ticket) {
     return { label: "Còn 2h 0p", color: "text-brand-ink", dot: "bg-emerald-500" };
   }
+  // Ticket đã xử lý xong hoặc đóng không còn đếm ngược SLA
   if (["resolved", "closed"].includes(ticket.status)) {
     return { label: "Đạt SLA", color: "text-emerald-700", dot: "bg-emerald-500" };
   }
@@ -103,6 +121,7 @@ export function getSlaDisplayForTicket(ticket) {
 
   const targetMinutes = SLA_TARGET_MINUTES[ticket.priority] ?? 480;
   const createdMs = new Date(ticket.createdAt).getTime();
+  // Nếu thời gian tạo không hợp lệ, hiển thị mốc mục tiêu tổng quát
   if (!Number.isFinite(createdMs)) {
     return {
       label: `Mục tiêu ${Math.round(targetMinutes / 60)}h`,
@@ -111,9 +130,11 @@ export function getSlaDisplayForTicket(ticket) {
     };
   }
 
+  // Tính thời gian còn lại trước khi vi phạm SLA
   const remainingMs = createdMs + targetMinutes * 60_000 - Date.now();
   const formatted = formatSlaDuration(remainingMs);
 
+  // Đã vượt hạn SLA -> màu đỏ kèm animation nhấp nháy .pulse-sla
   if (remainingMs <= 0) {
     return {
       label: `Quá hạn ${formatted}`,
@@ -121,6 +142,7 @@ export function getSlaDisplayForTicket(ticket) {
       dot: "bg-red-600 pulse-sla",
     };
   }
+  // Còn dưới 30 phút -> mức cảnh báo khẩn cấp
   if (remainingMs <= 30 * 60_000) {
     return {
       label: `Còn ${formatted}`,
@@ -128,6 +150,7 @@ export function getSlaDisplayForTicket(ticket) {
       dot: "bg-red-600 pulse-sla",
     };
   }
+  // Còn dưới 90 phút -> mức cảnh báo trung bình (vàng cam)
   if (remainingMs <= 90 * 60_000) {
     return {
       label: `Còn ${formatted}`,
@@ -135,6 +158,7 @@ export function getSlaDisplayForTicket(ticket) {
       dot: "bg-amber-500",
     };
   }
+  // Thời gian xử lý còn dồi dào
   return {
     label: `Còn ${formatted}`,
     color: "text-emerald-700",

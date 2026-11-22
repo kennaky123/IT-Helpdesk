@@ -1,11 +1,22 @@
+/**
+ * @file HomePage.jsx
+ * @description Trang khởi động (Landing/Placeholder Page) giới thiệu trạng thái sẵn sàng của hệ thống IT Helpdesk và các công nghệ nền tảng.
+ * @role Công khai / Mặc định (Auth chưa điều hướng hoặc trang tham chiếu khởi tạo dự án).
+ * @flow Hiển thị thông điệp chào mừng và render danh sách công nghệ tĩnh (React + Vite, Tailwind CSS, Express + MongoDB).
+ */
 import { CircleCheck, Headset } from "lucide-react";
 
+// Danh sách công nghệ nền tảng được hiển thị trên thẻ trạng thái dự án
 const technologies = [
   "React + Vite",
   "Tailwind CSS",
   "Express + MongoDB",
 ];
 
+/**
+ * Component trang chủ khởi động dự án.
+ * Không gọi API hay xử lý form; chỉ hiển thị giao diện giới thiệu và kiểm tra bộ công cụ UI.
+ */
 function HomePage() {
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-12">

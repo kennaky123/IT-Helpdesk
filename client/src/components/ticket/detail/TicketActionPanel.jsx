@@ -1,3 +1,20 @@
+/**
+ * @file TicketActionPanel.jsx
+ * @description Bảng điều phối và thực hiện các thao tác nghiệp vụ lên ticket trong màn hình chi tiết ticket.
+ *
+ * Props của component chính `TicketActionPanel`:
+ * - `ticket` {Object}: Dữ liệu chi tiết ticket hiện tại (trạng thái, người phụ trách, cách giải quyết...).
+ * - `permissions` {Object}: Tập cờ phân quyền thao tác được tính từ `getTicketPermissions`
+ *   (`canAssign`, `canSelfAssign`, `canUpdateStatus`, `canEditResolution`, `canCancel`, `canClose`, `statusTransitions`).
+ * - `onAssign` {Function}: Hàm async xử lý phân công hoặc tự nhận xử lý ticket (`{ technicianId, reason }`).
+ * - `onUpdateStatus` {Function}: Hàm async cập nhật trạng thái xử lý SLA (`{ status, note, resolution? }`).
+ * - `onUpdateResolution` {Function}: Hàm async lưu riêng nội dung giải pháp khắc phục (`resolution`).
+ * - `onRequestCancel` {Function}: Callback mở luồng/hộp thoại xác nhận hủy ticket.
+ * - `onRequestClose` {Function}: Callback mở luồng/hộp thoại xác nhận đóng ticket sau khi đã giải quyết.
+ *
+ * Vai trò: Hiển thị ở cột bên phải của trang chi tiết ticket, gom toàn bộ form chuyển trạng thái,
+ * phân công kỹ thuật viên, cập nhật giải pháp và nút kết thúc vòng đời ticket theo đúng vai trò người dùng.
+ */
 import {
   AlertTriangle,
   CheckCircle2,
@@ -14,9 +31,14 @@ import { getTicketActionError } from "../../../services/ticketService.js";
 import { getUserServiceErrorMessage } from "../../../services/userService.js";
 import { getTicketStatusLabel } from "../../../utils/ticketPermissions.js";
 
+// Chuỗi class Tailwind dùng chung cho các ô select và textarea trong bảng điều phối ticket
 const fieldClassName =
   "mt-1.5 w-full rounded-lg border border-brand-bone bg-brand-mist px-3 py-2 text-xs font-semibold text-brand-ink outline-none transition focus:border-brand-violet focus:bg-white disabled:cursor-not-allowed disabled:opacity-60";
 
+/**
+ * Hiển thị thông báo lỗi cục bộ ngay bên dưới từng form thao tác.
+ * @param {{ error: { message: string, details?: string[] } | null }} props
+ */
 function InlineActionError({ error }) {
   if (!error) {
     return null;
@@ -39,18 +61,27 @@ function InlineActionError({ error }) {
   );
 }
 
+/**
+ * Form điều phối & phân công kỹ thuật viên (KTV) phụ trách ticket.
+ * Hỗ trợ KTV tự nhận ticket từ hàng đợi chung hoặc Admin/KTV chọn KTV khác để bàn giao.
+ */
 function AssignmentForm({ ticket, canSelfAssign, onAssign }) {
+  // Lấy thông tin tài khoản hiện tại để phục vụ nút tự nhận xử lý ticket
   const { user: currentUser } = useAuth();
+  // Tải danh sách kỹ thuật viên đang hoạt động từ API để hiển thị trong dropdown
   const techniciansState = useActiveTechnicians(true);
+  // State lưu ID KTV được chọn, lý do bàn giao, cờ loading của 2 nút bấm và lỗi thao tác
   const [technicianId, setTechnicianId] = useState("");
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [selfAssigning, setSelfAssigning] = useState(false);
   const [error, setError] = useState(null);
+  // Loại bỏ KTV đang phụ trách hiện tại khỏi danh sách lựa chọn để tránh phân công trùng lặp
   const availableTechnicians = techniciansState.technicians.filter(
     (technician) => technician._id !== ticket.assignedTo?._id,
   );
 
+  // Handler cho KTV hiện tại tự nhận ticket vào danh sách xử lý của mình
   async function handleSelfAssign() {
     if (!currentUser?._id) return;
     setSelfAssigning(true);
@@ -68,6 +99,7 @@ function AssignmentForm({ ticket, canSelfAssign, onAssign }) {
     }
   }
 
+  // Handler submit form phân công hoặc điều phối lại ticket cho KTV được chọn
   async function handleSubmit(event) {
     event.preventDefault();
 
@@ -101,6 +133,7 @@ function AssignmentForm({ ticket, canSelfAssign, onAssign }) {
         Kỹ Thuật Viên Phụ Trách (Assignee)
       </h4>
 
+      {/* Nút tự nhận ticket nhanh dành cho kỹ thuật viên khi chưa phải người phụ trách */}
       {canSelfAssign && currentUser?._id ? (
         <button
           type="button"
@@ -120,6 +153,7 @@ function AssignmentForm({ ticket, canSelfAssign, onAssign }) {
         </button>
       ) : null}
 
+      {/* Dropdown chọn kỹ thuật viên phụ trách mới */}
       <select
         id="assign-technician"
         aria-label="Nhân viên kỹ thuật"
@@ -149,6 +183,7 @@ function AssignmentForm({ ticket, canSelfAssign, onAssign }) {
         ))}
       </select>
 
+      {/* Ô nhập ghi chú bàn giao / lý do phân công */}
       <textarea
         id="assignment-reason"
         aria-label="Lý do phân công"
@@ -161,6 +196,7 @@ function AssignmentForm({ ticket, canSelfAssign, onAssign }) {
         placeholder="Ghi chú bàn giao cho kỹ thuật viên (tùy chọn)..."
       />
 
+      {/* Hiển thị lỗi khi tải danh sách KTV và nút tải lại */}
       {techniciansState.error ? (
         <div
           className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800"
@@ -200,14 +236,21 @@ function AssignmentForm({ ticket, canSelfAssign, onAssign }) {
   );
 }
 
+/**
+ * Form chuyển đổi trạng thái xử lý ticket theo các bước chuyển hợp lệ của quy trình SLA.
+ * Khi chuyển sang trạng thái `resolved`, bắt buộc nhập thêm nội dung cách giải quyết (`resolution`).
+ */
 function StatusUpdateForm({ ticket, transitions, onUpdateStatus }) {
+  // Khởi tạo trạng thái đích mặc định bằng lựa chọn hợp lệ đầu tiên
   const [targetStatus, setTargetStatus] = useState(transitions[0] ?? "");
   const [note, setNote] = useState("");
   const [resolution, setResolution] = useState(ticket.resolution ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  // Cờ xác định thao tác hiện tại có phải là hoàn thành ticket ("resolved") hay không
   const resolving = targetStatus === "resolved";
 
+  // Handler kiểm tra đầu vào (trạng thái, ghi chú và cách giải quyết nếu resolved) trước khi gọi API
   async function handleSubmit(event) {
     event.preventDefault();
 
@@ -252,6 +295,7 @@ function StatusUpdateForm({ ticket, transitions, onUpdateStatus }) {
         <Workflow className="size-4 text-brand-violet" aria-hidden="true" />
         Trạng Thái Xử Lý
       </h4>
+      {/* Dropdown chọn trạng thái kế tiếp hợp lệ theo state machine */}
       <select
         id="target-status"
         aria-label="Trạng thái mới"
@@ -270,6 +314,7 @@ function StatusUpdateForm({ ticket, transitions, onUpdateStatus }) {
         ))}
       </select>
 
+      {/* Ô ghi chú bắt buộc để lưu vào nhật ký chuyển trạng thái */}
       <textarea
         id="status-note"
         aria-label="Ghi chú thay đổi trạng thái"
@@ -285,6 +330,7 @@ function StatusUpdateForm({ ticket, transitions, onUpdateStatus }) {
         placeholder="Mô tả bước xử lý vừa thực hiện..."
       />
 
+      {/* Khi chuyển sang trạng thái Đã giải quyết, hiển thị thêm ô nhập giải pháp khắc phục */}
       {resolving ? (
         <textarea
           id="status-resolution"
@@ -333,11 +379,16 @@ function StatusUpdateForm({ ticket, transitions, onUpdateStatus }) {
   );
 }
 
+/**
+ * Form cập nhật riêng nội dung cách giải quyết (Resolution) trong quá trình xử lý ticket.
+ */
 function ResolutionForm({ ticket, onUpdateResolution }) {
+  // State lưu nội dung giải pháp nháp, trạng thái gửi và lỗi
   const [resolution, setResolution] = useState(ticket.resolution ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
+  // Handler lưu nội dung cách giải quyết sau khi kiểm tra không để trống
   async function handleSubmit(event) {
     event.preventDefault();
 
@@ -398,6 +449,9 @@ function ResolutionForm({ ticket, onUpdateResolution }) {
   );
 }
 
+/**
+ * Component bảng điều phối hành động trên ticket dựa theo ma trận phân quyền `permissions`.
+ */
 function TicketActionPanel({
   ticket,
   permissions,
@@ -407,10 +461,12 @@ function TicketActionPanel({
   onRequestCancel,
   onRequestClose,
 }) {
+  // Kiểm tra xem người dùng hiện tại có ít nhất một quyền điều phối luồng xử lý hay không
   const hasWorkflowActions =
     permissions.canAssign ||
     permissions.canUpdateStatus ||
     permissions.canEditResolution;
+  // Kiểm tra quyền kết thúc vòng đời ticket (xác nhận đóng hoặc hủy ticket)
   const hasTerminalActions = permissions.canCancel || permissions.canClose;
 
   return (
@@ -420,6 +476,7 @@ function TicketActionPanel({
       </h3>
 
       <div className="mt-3 space-y-4">
+        {/* Khối chuyển trạng thái xử lý SLA */}
         {permissions.canUpdateStatus ? (
           <StatusUpdateForm
             ticket={ticket}
@@ -427,6 +484,7 @@ function TicketActionPanel({
             onUpdateStatus={onUpdateStatus}
           />
         ) : null}
+        {/* Khối phân công / tự nhận kỹ thuật viên phụ trách */}
         {permissions.canAssign ? (
           <AssignmentForm
             ticket={ticket}
@@ -434,6 +492,7 @@ function TicketActionPanel({
             onAssign={onAssign}
           />
         ) : null}
+        {/* Khối ghi nhận hoặc cập nhật cách giải quyết sự cố */}
         {permissions.canEditResolution ? (
           <ResolutionForm
             ticket={ticket}
@@ -441,6 +500,7 @@ function TicketActionPanel({
           />
         ) : null}
 
+        {/* Khối nút đóng ticket (khi đã resolved) hoặc hủy ticket */}
         {hasTerminalActions ? (
           <div className="border-t border-brand-bone pt-4">
             <h4 className="mb-2.5 text-xs font-bold text-brand-ink">
@@ -476,6 +536,7 @@ function TicketActionPanel({
           </div>
         ) : null}
 
+        {/* Thông báo khi người dùng không có thao tác khả dụng hoặc ticket đã kết thúc quy trình */}
         {!hasWorkflowActions && !hasTerminalActions ? (
           <p className="rounded-lg bg-brand-mist px-3 py-2.5 text-xs text-brand-slate">
             Ticket hiện đã khóa thao tác hoặc hoàn tất quy trình SLA.

@@ -1,8 +1,19 @@
+/**
+ * Modal biểu mẫu nhập mới hoặc chỉnh sửa thông tin thiết bị IT (Asset) trong kho quản lý tài sản.
+ * Cho phép nhập mã định danh (Asset Tag), tên thiết bị, loại, số serial, cấu hình, hệ điều hành,
+ * thông tin kết nối hỗ trợ từ xa (AnyDesk/TeamViewer) và ghi chú.
+ *
+ * Props:
+ * - asset: Đối tượng thiết bị cần chỉnh sửa (null/undefined nếu đang nhập thiết bị mới vào kho).
+ * - onClose: Callback đóng modal.
+ * - onSaved: Callback(result) được gọi sau khi tạo hoặc cập nhật thiết bị thành công.
+ */
 import { useState } from "react";
 import { Laptop, Save, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { createAsset, updateAsset } from "../../services/assetService.js";
 
+// Danh sách tùy chọn phân loại thiết bị trong kho IT
 const ASSET_TYPES = [
   { value: "laptop", label: "Laptop (Máy tính xách tay)" },
   { value: "desktop", label: "Desktop (Máy tính bàn / PC)" },
@@ -11,9 +22,14 @@ const ASSET_TYPES = [
   { value: "other", label: "Thiết bị khác" },
 ];
 
+/**
+ * Component modal tạo mới hoặc chỉnh sửa thông tin tài sản thiết bị.
+ */
 function AssetFormModal({ asset, onClose, onSaved }) {
+  // Xác định chế độ chỉnh sửa nếu đã tồn tại asset._id
   const isEdit = Boolean(asset?._id);
 
+  // State lưu trữ toàn bộ dữ liệu các trường trong form thiết bị
   const [formData, setFormData] = useState({
     assetTag: asset?.assetTag || "",
     name: asset?.name || "",
@@ -27,15 +43,19 @@ function AssetFormModal({ asset, onClose, onSaved }) {
     notes: asset?.notes || "",
   });
 
+  // State đánh dấu đang gửi request lưu dữ liệu để khóa nút submit và chặn đóng modal
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Handler cập nhật giá trị từng trường nhập liệu vào state formData theo thuộc tính name
   function handleChange(e) {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   }
 
+  // Handler validate thủ công và submit form tạo/cập nhật thiết bị lên API
   async function handleSubmit(e) {
     e.preventDefault();
+    // Kiểm tra bắt buộc hai trường định danh chính trước khi gửi API
     if (!formData.assetTag.trim() || !formData.name.trim()) {
       toast.warning("Vui lòng nhập Mã thiết bị và Tên thiết bị.");
       return;
@@ -43,6 +63,7 @@ function AssetFormModal({ asset, onClose, onSaved }) {
 
     setIsSubmitting(true);
     try {
+      // Chuẩn hóa payload: viết hoa Asset Tag, cắt khoảng trắng và chuyển chuỗi rỗng thành null
       const payload = {
         ...formData,
         assetTag: formData.assetTag.trim().toUpperCase(),
@@ -54,6 +75,7 @@ function AssetFormModal({ asset, onClose, onSaved }) {
         notes: formData.notes.trim() || null,
       };
 
+      // Phân nhánh gọi API cập nhật hoặc tạo mới tùy theo chế độ isEdit
       let result;
       if (isEdit) {
         result = await updateAsset(asset._id, payload);
@@ -73,11 +95,13 @@ function AssetFormModal({ asset, onClose, onSaved }) {
   return (
     <div
       onClick={(e) => {
+        // Chỉ đóng modal khi click đúng vào lớp nền ngoài và không đang submit
         if (e.target === e.currentTarget && !isSubmitting) onClose();
       }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
     >
       <div className="w-full max-w-2xl bg-white rounded-2xl border border-brand-bone shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+        {/* Đầu modal hiển thị tiêu đề theo chế độ thêm/sửa và nút đóng */}
         <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100 text-brand-violet">
@@ -103,6 +127,7 @@ function AssetFormModal({ asset, onClose, onSaved }) {
           </button>
         </div>
 
+        {/* Biểu mẫu nhập thông tin thiết bị */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -202,6 +227,7 @@ function AssetFormModal({ asset, onClose, onSaved }) {
           </div>
 
           {/* Remote Assistance Info */}
+          {/* Khu vực cấu hình phần mềm và mã ID hỗ trợ điều khiển từ xa */}
           <div className="p-4 rounded-xl border border-brand-violet/20 bg-purple-50/40 space-y-3">
             <div className="text-xs font-bold text-brand-violet uppercase tracking-wider">
               Cấu Hình Điều Khiển Từ Xa (Remote Support)
@@ -253,6 +279,7 @@ function AssetFormModal({ asset, onClose, onSaved }) {
             />
           </div>
 
+          {/* Hàng nút Hủy và Lưu ở cuối form */}
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-brand-bone shrink-0">
             <button
               type="button"

@@ -1,3 +1,18 @@
+/**
+ * Bảng danh sách thiết bị IT (Assets) trong module quản lý tài sản.
+ * Hiển thị thông tin phần cứng, trạng thái kho, nhân viên đang sử dụng, nút kết nối nhanh Remote Desktop (AnyDesk/TeamViewer)
+ * và các thao tác vòng đời thiết bị (Cấp phát, Thu hồi, Cấu hình Remote, Xem lịch sử, Sửa, Xóa) theo phân quyền.
+ *
+ * Props:
+ * - assets: Mảng danh sách thiết bị cần hiển thị (mặc định []).
+ * - role: Vai trò người dùng hiện tại ("admin" | "technician" | "user", mặc định "admin").
+ * - onAssign: Callback(asset) mở modal cấp phát thiết bị đang trong kho.
+ * - onReturn: Callback(asset) mở modal thu hồi thiết bị đang sử dụng.
+ * - onEdit: Callback(asset) mở modal chỉnh sửa thông tin thiết bị.
+ * - onDelete: Callback(asset) xóa thiết bị (chỉ Admin và khi máy không đang sử dụng).
+ * - onViewHistory: Callback(assetId) mở drawer lịch sử vòng đời thiết bị.
+ * - onRemoteConnect: Callback(asset) mở modal cấu hình/kết nối Remote Desktop.
+ */
 import {
   ExternalLink,
   History,
@@ -11,6 +26,7 @@ import {
 import { toast } from "react-toastify";
 import { launchRemoteDesktop } from "../../services/assetService.js";
 
+// Cấu hình nhãn hiển thị, lớp màu badge và chấm tròn cho từng trạng thái thiết bị
 const STATUS_CONFIG = {
   in_stock: {
     label: "Trong Kho",
@@ -34,6 +50,7 @@ const STATUS_CONFIG = {
   },
 };
 
+// Bảng ánh xạ mã loại thiết bị sang tên hiển thị ngắn gọn
 const TYPE_LABELS = {
   laptop: "Laptop",
   desktop: "Desktop",
@@ -42,6 +59,9 @@ const TYPE_LABELS = {
   other: "Khác",
 };
 
+/**
+ * Component bảng hiển thị danh sách tài sản thiết bị IT và thao tác tương ứng.
+ */
 function AssetsTable({
   assets = [],
   role = "admin",
@@ -52,13 +72,16 @@ function AssetsTable({
   onViewHistory,
   onRemoteConnect,
 }) {
+  // Handler mở nhanh phần mềm Remote Desktop (AnyDesk/TeamViewer) và copy ID vào clipboard
   async function handleQuickLaunch(asset, e) {
     e.stopPropagation();
+    // Nếu thiết bị chưa được cấu hình remoteId thì mở modal để nhập mã trước
     if (!asset.remoteId) {
       onRemoteConnect?.(asset);
       return;
     }
     try {
+      // Sao chép ID và kích hoạt URL protocol mở ứng dụng điều khiển từ xa
       const { appName, id } = await launchRemoteDesktop(
         asset.remoteTool,
         asset.remoteId,
@@ -93,6 +116,7 @@ function AssetsTable({
             </tr>
           ) : (
             assets.map((asset) => {
+              // Tra cứu cấu hình badge trạng thái và kiểm tra thiết bị đã cấp cho nhân viên chưa
               const statusCfg = STATUS_CONFIG[asset.status] || STATUS_CONFIG.in_stock;
               const isAssigned = asset.status === "in_use" && asset.assignedTo;
 
@@ -168,6 +192,7 @@ function AssetsTable({
                   <td className="py-3 px-4">
                     {asset.remoteTool && asset.remoteTool !== "none" ? (
                       <div className="flex items-center gap-1.5">
+                        {/* Chỉ Admin/KTV được bấm mở nhanh Remote Desktop; User chỉ xem ID */}
                         {role !== "user" ? (
                           <button
                             type="button"
@@ -251,6 +276,7 @@ function AssetsTable({
                         </button>
                       )}
 
+                      {/* Xem lịch sử vòng đời thiết bị */}
                       <button
                         type="button"
                         onClick={() => onViewHistory?.(asset._id)}
@@ -260,6 +286,7 @@ function AssetsTable({
                         <History className="w-4 h-4" />
                       </button>
 
+                      {/* Chỉnh sửa thông tin thiết bị (Admin/Tech) */}
                       {role !== "user" && (
                         <button
                           type="button"
@@ -271,6 +298,7 @@ function AssetsTable({
                         </button>
                       )}
 
+                      {/* Xóa thiết bị (chỉ Admin và chỉ khi thiết bị không đang được sử dụng) */}
                       {role === "admin" && asset.status !== "in_use" && (
                         <button
                           type="button"

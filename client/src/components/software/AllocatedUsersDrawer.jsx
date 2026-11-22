@@ -1,3 +1,17 @@
+/**
+ * @fileoverview Drawer hiển thị danh sách nhân viên đang được cấp bản quyền phần mềm (Software FinOps).
+ *
+ * Mục đích & vai trò:
+ * - Thuộc phân hệ Software FinOps, mở dạng ngăn kéo trượt bên phải khi người quản trị
+ *   xem chi tiết danh sách sử dụng (`DS dùng`) của một gói bản quyền phần mềm.
+ * - Hiển thị từng nhân viên đang dùng seat, thông tin thiết bị công ty gắn kèm,
+ *   thời gian cấp phát, ghi chú và hỗ trợ thao tác thu hồi seat ngay lập tức.
+ *
+ * Props:
+ * - `licenseId` {string}: ID gói bản quyền cần tải danh sách người dùng.
+ * - `onClose` {Function}: Callback đóng drawer.
+ * - `onRevoked` {Function}: Callback sau khi thu hồi bản quyền thành công, trả về dữ liệu mới.
+ */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Laptop, User, UserMinus, Users, X } from "lucide-react";
 import { useEffect, useMemo } from "react";
@@ -6,26 +20,33 @@ import { getAssets } from "../../services/assetService.js";
 import { getSoftwareLicense, revokeLicense } from "../../services/softwareService.js";
 import { formatTicketDateTime } from "../../utils/ticketPermissions.js";
 
+/**
+ * Component drawer xem và thu hồi seat bản quyền của các nhân viên đang sử dụng.
+ */
 function AllocatedUsersDrawer({ licenseId, onClose, onRevoked }) {
   const queryClient = useQueryClient();
 
+  // Tải thông tin chi tiết gói bản quyền (bao gồm mảng assignedUsers) theo licenseId
   const licenseQuery = useQuery({
     queryKey: ["software", "detail", licenseId],
     queryFn: ({ signal }) => getSoftwareLicense(licenseId, { signal }),
     enabled: Boolean(licenseId),
   });
 
+  // Tải song song danh sách thiết bị đang ở trạng thái in_use để đối chiếu máy nhân viên đang giữ
   const assetsQuery = useQuery({
     queryKey: ["assets", "list", { status: "in_use" }],
     queryFn: ({ signal }) => getAssets({ status: "in_use" }, { signal }),
   });
 
+  // Hiển thị thông báo lỗi nếu quá trình tải chi tiết bản quyền thất bại
   useEffect(() => {
     if (licenseQuery.error) {
       toast.error("Không thể tải danh sách người dùng được cấp bản quyền.");
     }
   }, [licenseQuery.error]);
 
+  // Xây dựng Map tra cứu nhanh danh sách thiết bị in_use theo ID nhân viên
   const activeDevicesByUserId = useMemo(() => {
     const map = new Map();
     for (const asset of assetsQuery.data?.assets ?? []) {
@@ -42,6 +63,7 @@ function AllocatedUsersDrawer({ licenseId, onClose, onRevoked }) {
     return map;
   }, [assetsQuery.data?.assets]);
 
+  // Mutation thực hiện thu hồi bản quyền khỏi nhân viên và cập nhật đồng bộ React Query cache
   const revokeMutation = useMutation({
     mutationFn: ({ userId }) => revokeLicense(licenseId, { userId }),
     onSuccess: (updated, variables) => {
@@ -58,6 +80,7 @@ function AllocatedUsersDrawer({ licenseId, onClose, onRevoked }) {
   const license = licenseQuery.data;
   const isLoading = licenseQuery.isLoading || assetsQuery.isLoading;
 
+  // Chuẩn hóa danh sách người dùng đã cấp: chỉ giữ lại nhân viên đang thực tế có máy công ty
   const assignedUsers = useMemo(() => {
     const entries = license?.assignedUsers ?? [];
     return entries
@@ -75,6 +98,7 @@ function AllocatedUsersDrawer({ licenseId, onClose, onRevoked }) {
       .filter((entry) => entry.activeDevices.length > 0);
   }, [license?.assignedUsers, activeDevicesByUserId]);
 
+  // Xác nhận với người dùng trước khi kích hoạt mutation thu hồi seat
   function handleRevoke(userId, userName) {
     if (
       !window.confirm(
@@ -93,7 +117,9 @@ function AllocatedUsersDrawer({ licenseId, onClose, onRevoked }) {
       }}
       className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs animate-in fade-in"
     >
+      {/* Ngăn kéo trượt từ cạnh phải hiển thị chi tiết người đang dùng seat */}
       <div className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col border-l border-brand-bone animate-in slide-in-from-right duration-200">
+        {/* Header drawer: tên phần mềm và tỷ lệ seat đang dùng */}
         <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100 text-brand-violet">
@@ -120,6 +146,7 @@ function AllocatedUsersDrawer({ licenseId, onClose, onRevoked }) {
           </button>
         </div>
 
+        {/* Nội dung danh sách nhân viên hoặc trạng thái đang tải / trống */}
         <div className="p-5 flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center py-12 text-xs text-brand-slate">
@@ -144,6 +171,7 @@ function AllocatedUsersDrawer({ licenseId, onClose, onRevoked }) {
                 <span>Thao tác thu hồi</span>
               </div>
               {assignedUsers.map((entry) => {
+                // Trích xuất thông tin user và kiểm tra xem bản ghi này có đang trong quá trình thu hồi không
                 const user = entry.user || {};
                 const userId = user._id ?? entry.user;
                 const isCurrentlyRevoking =

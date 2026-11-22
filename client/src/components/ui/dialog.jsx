@@ -1,13 +1,30 @@
+/**
+ * @fileoverview Bộ component hộp thoại Dialog dựng trên Radix UI (UI primitives Shadcn-style).
+ *
+ * Mục đích & vai trò:
+ * - Cung cấp các primitive hộp thoại modal chuẩn accessibility (focus trap, phím ESC để đóng,
+ *   ARIA attributes) gồm: `Dialog`, `DialogTrigger`, `DialogPortal`, `DialogClose`, `DialogOverlay`,
+ *   `DialogContent`, `DialogHeader`, `DialogFooter`, `DialogTitle`, `DialogDescription`.
+ *
+ * Props chính:
+ * - `DialogContent`: nhận `hideClose` (`boolean`, mặc định `false`) để ẩn nút đóng `X` góc phải,
+ *   cùng `className` và `children`.
+ * - Các sub-component khác nhận `className` và `...props` của Radix / DOM tương ứng.
+ */
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { forwardRef } from "react";
 import { cn } from "../../lib/utils.js";
 
+// Export trực tiếp các primitive điều khiển trạng thái và Portal từ @radix-ui/react-dialog
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
 const DialogPortal = DialogPrimitive.Portal;
 const DialogClose = DialogPrimitive.Close;
 
+/**
+ * Lớp phủ nền tối có hiệu ứng làm mờ phía sau hộp thoại modal.
+ */
 const DialogOverlay = forwardRef(function DialogOverlay({ className, ...props }, ref) {
   return (
     <DialogPrimitive.Overlay
@@ -21,6 +38,9 @@ const DialogOverlay = forwardRef(function DialogOverlay({ className, ...props },
   );
 });
 
+/**
+ * Khung nội dung modal căn giữa màn hình qua Portal, đi kèm Overlay và nút đóng tùy chọn.
+ */
 const DialogContent = forwardRef(function DialogContent(
   { className, children, hideClose = false, ...props },
   ref,
@@ -37,6 +57,7 @@ const DialogContent = forwardRef(function DialogContent(
         {...props}
       >
         {children}
+        {/* Nút đóng nhanh góc trên bên phải (ẩn khi hideClose = true) */}
         {!hideClose ? (
           <DialogPrimitive.Close
             className="absolute top-4 right-4 flex size-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
@@ -50,6 +71,9 @@ const DialogContent = forwardRef(function DialogContent(
   );
 });
 
+/**
+ * Phần đầu của Dialog chứa tiêu đề và mô tả.
+ */
 function DialogHeader({ className, ...props }) {
   return (
     <div
@@ -59,6 +83,9 @@ function DialogHeader({ className, ...props }) {
   );
 }
 
+/**
+ * Phần chân Dialog chứa các nút hành động, tự xếp dọc trên mobile và ngang trên màn hình lớn.
+ */
 function DialogFooter({ className, ...props }) {
   return (
     <div
@@ -71,6 +98,9 @@ function DialogFooter({ className, ...props }) {
   );
 }
 
+/**
+ * Tiêu đề chính của Dialog, hỗ trợ gán aria-labelledby tự động bởi Radix.
+ */
 const DialogTitle = forwardRef(function DialogTitle({ className, ...props }, ref) {
   return (
     <DialogPrimitive.Title
@@ -81,6 +111,9 @@ const DialogTitle = forwardRef(function DialogTitle({ className, ...props }, ref
   );
 });
 
+/**
+ * Mô tả phụ của Dialog, hỗ trợ gán aria-describedby tự động bởi Radix.
+ */
 const DialogDescription = forwardRef(function DialogDescription({ className, ...props }, ref) {
   return (
     <DialogPrimitive.Description

@@ -1,3 +1,25 @@
+/**
+ * Bảng hiển thị danh sách người dùng có hỗ trợ chọn nhiều dòng, menu thao tác theo dòng và phân trang trong module quản trị User.
+ * Tự động chuyển đổi giữa dạng thẻ danh sách trên thiết bị nhỏ (mobile) và bảng đầy đủ trên màn hình lớn (desktop).
+ *
+ * Props:
+ * - users: Mảng danh sách người dùng trên trang hiện tại.
+ * - total: Tổng số bản ghi người dùng sau khi lọc.
+ * - page: Số trang hiện tại (bắt đầu từ 1).
+ * - pageSize: Số lượng dòng hiển thị trên mỗi trang.
+ * - selectedIds: Set chứa các id người dùng đang được tích chọn.
+ * - openMenuId: Chuỗi định danh menu thao tác đang mở (dạng `${scope}:${user.id}`).
+ * - onSelect: Callback(userId) bật/tắt chọn một người dùng.
+ * - onSelectPage: Callback(checked) chọn hoặc bỏ chọn tất cả người dùng trên trang hiện tại.
+ * - onMenuToggle: Callback(menuId) mở/đóng menu thao tác của một dòng.
+ * - onMenuClose: Callback đóng menu thao tác đang mở.
+ * - onView: Callback(user) xem chi tiết người dùng.
+ * - onEdit: Callback(user) mở form chỉnh sửa người dùng.
+ * - onToggleLock: Callback(user) khóa hoặc mở khóa tài khoản.
+ * - onDelete: Callback(user) xóa người dùng.
+ * - onPageChange: Callback(nextPage) chuyển trang.
+ * - onPageSizeChange: Callback(nextSize) thay đổi số dòng mỗi trang.
+ */
 import { ChevronLeft, ChevronRight, Edit3, Eye, LockKeyhole, MoreHorizontal, Trash2, UnlockKeyhole, UserRoundX } from "lucide-react";
 import { useRef } from "react";
 import useClickOutside from "../../../hooks/useClickOutside.js";
@@ -13,7 +35,11 @@ import {
   TableRow,
 } from "../../ui/table.jsx";
 
+/**
+ * Hiển thị badge trạng thái hoạt động của tài khoản (đang hoạt động, bị khóa, chưa xác thực).
+ */
 function StatusBadge({ status }) {
+  // Tra cấu hình nhãn/màu sắc theo status, mặc định về unverified nếu không khớp
   const config = USER_STATUS[status] ?? USER_STATUS.unverified;
   return (
     <Badge
@@ -25,7 +51,11 @@ function StatusBadge({ status }) {
   );
 }
 
+/**
+ * Hiển thị badge vai trò của người dùng (Quản trị viên, Kỹ thuật viên, Người dùng).
+ */
 function RoleBadge({ role }) {
+  // Tra cấu hình nhãn/màu sắc theo role, mặc định về user nếu không khớp
   const config = USER_ROLE[role] ?? USER_ROLE.user;
   return (
     <Badge
@@ -37,6 +67,9 @@ function RoleBadge({ role }) {
   );
 }
 
+/**
+ * Khối hiển thị avatar viết tắt, họ tên và email của người dùng; cho phép bấm để mở chi tiết.
+ */
 function UserIdentity({ user, onClick }) {
   return (
     <button
@@ -54,9 +87,15 @@ function UserIdentity({ user, onClick }) {
   );
 }
 
+/**
+ * Menu thả xuống chứa các hành động quản trị cho từng người dùng (xem, sửa, khóa/mở khóa, xóa).
+ * Sử dụng hook useClickOutside để tự động đóng menu khi người dùng click ra ngoài vùng menu.
+ */
 function UserActionMenu({ user, open, openUpward = false, onToggle, onClose, onView, onEdit, onToggleLock, onDelete }) {
+  // Ref bọc nút kích hoạt và dropdown menu để phát hiện click bên ngoài
   const menuRef = useRef(null);
   useClickOutside(menuRef, onClose, open);
+  // Chọn icon phù hợp với trạng thái khóa hiện tại của tài khoản
   const ActionIcon = user.status === "locked" ? UnlockKeyhole : LockKeyhole;
 
   return (
@@ -82,7 +121,11 @@ function UserActionMenu({ user, open, openUpward = false, onToggle, onClose, onV
   );
 }
 
+/**
+ * Thanh phân trang và chọn số dòng hiển thị cho danh sách người dùng.
+ */
 function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange }) {
+  // Tính tổng số trang (tối thiểu 1 trang) và khoảng thứ tự bản ghi đang hiển thị
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const first = total ? (page - 1) * pageSize + 1 : 0;
   const last = Math.min(page * pageSize, total);
@@ -91,12 +134,14 @@ function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange }) {
     <div className="flex flex-col gap-4 border-t border-slate-200 px-4 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-5">
       <p className="text-sm text-slate-600">Hiển thị <strong className="text-slate-800">{first}–{last}</strong> trong tổng số <strong className="text-slate-800">{total}</strong> bản ghi</p>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        {/* Dropdown thay đổi số dòng mỗi trang */}
         <label className="flex items-center gap-2 text-sm text-slate-600">
           Số dòng
           <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-100">
             {[5, 10, 20].map((value) => <option key={value} value={value}>{value}</option>)}
           </select>
         </label>
+        {/* Cụm nút điều hướng trang trước / số trang / trang sau */}
         <nav className="flex items-center gap-1" aria-label="Phân trang người dùng">
           <button type="button" onClick={() => onPageChange(page - 1)} disabled={page === 1} className="flex size-10 items-center justify-center rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-40" aria-label="Trang trước"><ChevronLeft className="size-4" /></button>
           {Array.from({ length: totalPages }, (_, index) => index + 1).map((item) => (
@@ -109,11 +154,18 @@ function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange }) {
   );
 }
 
+/**
+ * Component bảng quản lý người dùng chính.
+ */
 function UsersTable({ users, total, page, pageSize, selectedIds, openMenuId, onSelect, onSelectPage, onMenuToggle, onMenuClose, onView, onEdit, onToggleLock, onDelete, onPageChange, onPageSizeChange }) {
+  // Kiểm tra toàn bộ bản ghi trên trang hiện tại có đang được chọn hết hay không
   const allSelected = users.length > 0 && users.every((user) => selectedIds.has(user.id));
+
+  // Helper tạo props truyền cho UserActionMenu theo ngữ cảnh mobile/desktop và vị trí dòng
   const menuProps = (user, scope, index) => ({
     user,
     open: openMenuId === `${scope}:${user.id}`,
+    // Ở bảng desktop, 2 dòng cuối mở menu hướng lên trên để tránh bị tràn/khuất khỏi bảng
     openUpward: scope === "desktop" && users.length > 2 && index >= users.length - 2,
     onToggle: () => onMenuToggle(`${scope}:${user.id}`),
     onClose: onMenuClose,
@@ -127,6 +179,7 @@ function UsersTable({ users, total, page, pageSize, selectedIds, openMenuId, onS
     <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white shadow-sm" aria-labelledby="users-table-title">
       <h2 id="users-table-title" className="sr-only">Danh sách người dùng</h2>
       {users.length === 0 ? (
+        /* Trạng thái rỗng khi không có người dùng nào khớp bộ lọc */
         <div className="flex min-h-72 flex-col items-center justify-center px-5 text-center">
           <span className="flex size-14 items-center justify-center rounded-full bg-slate-100 text-slate-500"><UserRoundX className="size-6" /></span>
           <h3 className="mt-4 font-semibold text-slate-900">Không tìm thấy người dùng</h3>
@@ -134,6 +187,7 @@ function UsersTable({ users, total, page, pageSize, selectedIds, openMenuId, onS
         </div>
       ) : (
         <>
+          {/* Giao diện danh sách thẻ cho màn hình nhỏ (mobile/tablet) */}
           <ul className="divide-y divide-slate-100 lg:hidden">
             {users.map((user, index) => (
               <li key={user.id} className="p-4">
@@ -153,6 +207,7 @@ function UsersTable({ users, total, page, pageSize, selectedIds, openMenuId, onS
             ))}
           </ul>
 
+          {/* Giao diện bảng đầy đủ cho màn hình desktop */}
           <div className="hidden lg:block">
             <Table className="min-w-[72rem]">
               <TableHeader className="bg-slate-50 text-xs text-slate-500">
@@ -217,6 +272,7 @@ function UsersTable({ users, total, page, pageSize, selectedIds, openMenuId, onS
           </div>
         </>
       )}
+      {/* Thanh điều khiển phân trang đặt ở cuối khung bảng */}
       <Pagination page={page} pageSize={pageSize} total={total} onPageChange={onPageChange} onPageSizeChange={onPageSizeChange} />
     </section>
   );

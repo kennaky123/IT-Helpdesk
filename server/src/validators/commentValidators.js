@@ -1,7 +1,18 @@
+/**
+ * @file commentValidators.js
+ * @description Bộ middleware kiểm tra dữ liệu đầu vào cho luồng bình luận và ghi chú nội bộ trên Ticket.
+ * Vai trò trong kiến trúc Backend: Thuộc tầng Validator (Express Middleware Validator), sử dụng trong
+ * `ticketConversationRoutes.js` để xác thực nội dung comment và tham số phân trang danh sách hội thoại.
+ */
 import ApiError from "../utils/ApiError.js";
 
+// Giới hạn số trang tối đa nhằm tránh lỗi tràn số hoặc truy vấn skip quá lớn
 const MAX_PAGE = 1_000_000;
 
+/**
+ * Hàm phụ trợ phân tích chuỗi/số thành số nguyên không âm an toàn.
+ * Trả về `fallback` nếu giá trị là `undefined`, hoặc `NaN` nếu sai định dạng số nguyên dương.
+ */
 function parsePositiveInteger(value, fallback) {
   if (value === undefined) {
     return fallback;
@@ -13,6 +24,7 @@ function parsePositiveInteger(value, fallback) {
 
   const normalizedValue = String(value);
 
+  // Chỉ chấp nhận chuỗi toàn chữ số để loại bỏ số âm, số thập phân hoặc ký tự lạ
   if (!/^\d+$/.test(normalizedValue)) {
     return Number.NaN;
   }
@@ -21,6 +33,11 @@ function parsePositiveInteger(value, fallback) {
   return Number.isSafeInteger(parsedValue) ? parsedValue : Number.NaN;
 }
 
+/**
+ * Middleware validate nội dung tạo bình luận hoặc ghi chú nội bộ (`POST /comments`, `POST /internal-notes`).
+ * Quy tắc: `content` từ 1 đến 5000 ký tự sau khi trim; nghiêm cấm client tự truyền `isInternal` trong body
+ * để tránh giả mạo ghi chú nội bộ qua endpoint công khai.
+ */
 export function validateCreateComment(request, _response, next) {
   try {
     const body = request.body ?? {};
@@ -32,12 +49,14 @@ export function validateCreateComment(request, _response, next) {
       errors.push("Nội dung trao đổi phải có từ 1 đến 5000 ký tự.");
     }
 
+    // Chặn client tự đặt cờ isInternal; việc phân biệt được quyết định bởi URL endpoint (/comments vs /internal-notes)
     if (Object.hasOwn(body, "isInternal")) {
       errors.push(
         "Không gửi isInternal trong request; hãy sử dụng đúng endpoint.",
       );
     }
 
+    // Làm sạch request.body chỉ giữ lại nội dung đã trim
     request.body = { content };
 
     if (errors.length > 0) {
@@ -52,6 +71,11 @@ export function validateCreateComment(request, _response, next) {
   }
 }
 
+/**
+ * Middleware validate tham số phân trang và sắp xếp danh sách bình luận (`GET /comments`).
+ * Quy tắc: `page` (1..1_000_000, mặc định 1), `limit` (1..100, mặc định 20), `sortOrder` ("asc" hoặc "desc", mặc định "asc").
+ * Gắn kết quả đã chuẩn hóa vào `request.commentQuery`.
+ */
 export function validateCommentListQuery(request, _response, next) {
   try {
     const query = request.query ?? {};
@@ -72,6 +96,7 @@ export function validateCommentListQuery(request, _response, next) {
       errors.push("Thứ tự comment phải là asc hoặc desc.");
     }
 
+    // Lưu tham số truy vấn sạch vào request.commentQuery cho controller dùng trực tiếp
     request.commentQuery = { page, limit, sortOrder };
 
     if (errors.length > 0) {

@@ -1,6 +1,19 @@
+/**
+ * @fileoverview Component huy hiệu trạng thái Badge (UI primitives Shadcn-style).
+ *
+ * Mục đích & vai trò:
+ * - Cung cấp UI primitive dùng chung toàn hệ thống để hiển thị nhãn phân loại, trạng thái
+ *   (SLA, ticket, thiết bị, bản quyền...) với bảng màu đồng bộ theo design token thương hiệu.
+ *
+ * Props:
+ * - `variant` {"default"|"secondary"|"violet"|"blue"|"emerald"|"amber"|"orange"|"destructive"|"outline"}: Biến thể màu sắc.
+ * - `className` {string}: Class CSS tùy chỉnh bổ sung.
+ * - `...props`: Các thuộc tính HTML chuẩn của thẻ `<span>`.
+ */
 import { cva } from "class-variance-authority";
 import { cn } from "../../lib/utils.js";
 
+// Định nghĩa các biến thể màu sắc của Badge bằng class-variance-authority (CVA)
 const badgeVariants = cva(
   "inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors",
   {
@@ -23,6 +36,9 @@ const badgeVariants = cva(
   },
 );
 
+/**
+ * Component Badge render thẻ span với class đã kết hợp từ variant và className.
+ */
 function Badge({ className, variant, ...props }) {
   return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
 }

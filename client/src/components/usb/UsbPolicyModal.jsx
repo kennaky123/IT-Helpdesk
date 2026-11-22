@@ -1,10 +1,28 @@
+/**
+ * @fileoverview Modal cấu hình chính sách bảo mật DLP cho thiết bị USB (USB DLP Security).
+ *
+ * Mục đích & vai trò:
+ * - Thuộc phân hệ USB DLP Security, cho phép Admin/Kỹ thuật viên thiết lập chính sách kiểm soát
+ *   đối với một thiết bị USB cụ thể: chuyển trạng thái Whitelist (`trusted`), Chưa xác minh (`unverified`),
+ *   hoặc Blacklist (`blocked`).
+ * - Hỗ trợ gán đích danh nhân viên được phép sử dụng thiết bị USB và lưu ghi chú kiểm duyệt an toàn thông tin.
+ *
+ * Props:
+ * - `device` {Object}: Đối tượng thiết bị USB đang cần cấu hình chính sách.
+ * - `onClose` {Function}: Callback đóng modal.
+ * - `onSaved` {Function}: Callback nhận bản ghi thiết bị USB đã cập nhật sau khi lưu thành công.
+ */
 import { useEffect, useState } from "react";
 import { Save, ShieldCheck, Usb, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { getAssignableEmployees } from "../../services/assetService.js";
 import { updateUsbDevicePolicy } from "../../services/usbService.js";
 
+/**
+ * Component modal cập nhật chính sách bảo mật và gán chủ sở hữu cho thiết bị USB.
+ */
 function UsbPolicyModal({ device, onClose, onSaved }) {
+  // State lưu danh sách nhân viên có thể gán và các trường cấu hình chính sách USB
   const [employees, setEmployees] = useState([]);
   const [status, setStatus] = useState(device?.status || "unverified");
   const [assignedUserId, setAssignedUserId] = useState(
@@ -14,6 +32,7 @@ function UsbPolicyModal({ device, onClose, onSaved }) {
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Tải danh sách nhân viên từ API khi mở modal; dùng AbortController để hủy request khi unmount
   useEffect(() => {
     const controller = new AbortController();
     getAssignableEmployees({ signal: controller.signal })
@@ -28,6 +47,7 @@ function UsbPolicyModal({ device, onClose, onSaved }) {
     return () => controller.abort();
   }, []);
 
+  // Gửi cấu hình chính sách (trạng thái bảo mật, nhân viên sở hữu, ghi chú DLP) lên server
   async function handleSubmit(e) {
     e.preventDefault();
     setIsSubmitting(true);
@@ -57,6 +77,7 @@ function UsbPolicyModal({ device, onClose, onSaved }) {
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
     >
       <div className="w-full max-w-lg bg-white rounded-2xl border border-brand-bone shadow-xl overflow-hidden">
+        {/* Header modal cấu hình chính sách bảo mật USB */}
         <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100 text-brand-violet">
@@ -80,7 +101,9 @@ function UsbPolicyModal({ device, onClose, onSaved }) {
           </button>
         </div>
 
+        {/* Form cập nhật chính sách bảo mật, gán nhân viên và ghi chú DLP */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {/* Thông tin nhận diện phần cứng của thiết bị USB và máy trạm gần nhất */}
           <div className="rounded-xl border border-brand-bone bg-brand-mist/60 p-3.5 space-y-1.5 text-xs">
             <div className="flex justify-between gap-2">
               <span className="text-brand-slate shrink-0">Tên thiết bị:</span>
@@ -103,6 +126,7 @@ function UsbPolicyModal({ device, onClose, onSaved }) {
             </div>
           </div>
 
+          {/* Chọn 1 trong 3 trạng thái bảo mật: Whitelist / Chưa xác minh / Blacklist */}
           <div>
             <label className="block text-xs font-semibold text-brand-onyx mb-1.5">
               Trạng thái chính sách bảo mật <span className="text-red-500">*</span>
@@ -144,6 +168,7 @@ function UsbPolicyModal({ device, onClose, onSaved }) {
             </div>
           </div>
 
+          {/* Gán nhân viên được cấp quyền sử dụng USB (nếu có) */}
           <div>
             <label className="block text-xs font-semibold text-brand-onyx mb-1">
               Nhân viên được phép sử dụng (tùy chọn)

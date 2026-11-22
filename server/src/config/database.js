@@ -1,11 +1,26 @@
+/**
+ * @file database.js
+ * @description Cấu hình kết nối PostgreSQL và cung cấp tầng ODM tương thích Mongoose (`Schema`, `createModel`, `QueryBuilder`, `aggregate`).
+ * Vai trò trong kiến trúc Backend:
+ * - Quản lý Connection Pool tới PostgreSQL (`pg.Pool`), tự động tạo database nếu chưa tồn tại (mã lỗi `3D000`)
+ *   và thực thi DDL khởi tạo toàn bộ bảng, khóa ngoại và chỉ mục (`SCHEMA_SQL`).
+ * - Cung cấp lớp `Schema`, `PgDocument`, `QueryBuilder` và `PgModel` giúp các Model/Service/Controller
+ *   sử dụng cú pháp quen thuộc (`find`, `findOne`, `findById`, `populate`, `lean`, `save`, `aggregate`...)
+ *   trên nền tảng PostgreSQL quan hệ và cột JSONB.
+ */
 import crypto from "node:crypto";
 import pg from "pg";
 import { env } from "./env.js";
 
 const { Pool } = pg;
 
+/** Biểu thức chính quy kiểm tra chuỗi ID hex 24 ký tự (tương thích định dạng ObjectId 12 byte). */
 const OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/;
 
+/**
+ * Polyfill `String.prototype.equals` mô phỏng phương thức `.equals()` của ObjectId trong Mongoose.
+ * Cho phép so sánh ID dạng chuỗi với chuỗi khác hoặc đối tượng có thuộc tính `_id`.
+ */
 if (!Object.hasOwn(String.prototype, "equals")) {
   Object.defineProperty(String.prototype, "equals", {
     value(other) {
@@ -21,6 +36,10 @@ if (!Object.hasOwn(String.prototype, "equals")) {
   });
 }
 
+/**
+ * Polyfill `Array.prototype.id` mô phỏng helper `.id()` trên mảng subdocument của Mongoose.
+ * Tìm kiếm phần tử đầu tiên có `_id` hoặc `id` khớp với `targetId` sau khi chuẩn hóa về chuỗi.
+ */
 if (!Object.hasOwn(Array.prototype, "id")) {
   Object.defineProperty(Array.prototype, "id", {
     value(targetId) {
@@ -39,14 +58,27 @@ if (!Object.hasOwn(Array.prototype, "id")) {
   });
 }
 
+/**
+ * Sinh mã định danh duy nhất 24 ký tự hex (12 byte ngẫu nhiên) tương thích với chuẩn độ dài `VARCHAR(24)`.
+ * @returns {string} Chuỗi ID hex 24 ký tự.
+ */
 export function generateId() {
   return crypto.randomBytes(12).toString("hex");
 }
 
+/**
+ * Kiểm tra giá trị đầu vào có phải chuỗi ID hex 24 ký tự hợp lệ hay không.
+ * @param {*} value - Giá trị cần kiểm tra.
+ * @returns {boolean} `true` nếu hợp lệ, ngược lại `false`.
+ */
 export function isValidId(value) {
   return typeof value === "string" && OBJECT_ID_REGEX.test(value);
 }
 
+/**
+ * Trích xuất tên database PostgreSQL từ chuỗi kết nối `env.databaseUrl`.
+ * @returns {string} Tên database đã giải mã URL hoặc chuỗi rỗng nếu URL không hợp lệ/chưa cấu hình.
+ */
 export function getDatabaseName() {
   if (!env.databaseUrl) {
     return "";
@@ -59,14 +91,23 @@ export function getDatabaseName() {
   }
 }
 
+/** Đối tượng đại diện thông tin kết nối hiện tại (tương thích interface `mongoose.connection.name`). */
 export const dbConnection = {
   get name() {
     return getDatabaseName();
   },
 };
 
+/** Instance singleton của PostgreSQL Connection Pool. */
 let pool = null;
 
+/**
+ * Lấy hoặc khởi tạo singleton `pg.Pool` dùng chung cho toàn bộ truy vấn SQL.
+ * Luồng xử lý: Nếu `pool` chưa tồn tại, kiểm tra `env.databaseUrl` và tạo Pool mới
+ * với giới hạn tối đa 20 kết nối, timeout nhàn rỗi 30s và timeout kết nối 5s.
+ * @throws {Error} Ném lỗi nếu thiếu `DATABASE_URL`.
+ * @returns {import("pg").Pool} Đối tượng PostgreSQL connection pool đang hoạt động.
+ */
 export function getPool() {
   if (!pool) {
     if (!env.databaseUrl) {
@@ -82,6 +123,13 @@ export function getPool() {
   return pool;
 }
 
+/**
+ * Chuỗi DDL SQL khởi tạo toàn bộ cấu trúc bảng và chỉ mục cho PostgreSQL nếu chưa tồn tại:
+ * - `users`, `categories`, `ticket_counters`, `tickets`, `comments`, `ratings` (phân hệ Helpdesk Ticket)
+ * - `assets`, `asset_requests` (phân hệ Quản lý Tài sản IT)
+ * - `software_licenses` (phân hệ Quản lý Bản quyền Phần mềm)
+ * - `usb_devices`, `usb_event_logs` (phân hệ Giám sát & Bảo mật USB)
+ */
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(24) PRIMARY KEY,
@@ -298,6 +346,15 @@ CREATE INDEX IF NOT EXISTS idx_usb_event_logs_created_at ON usb_event_logs (crea
 CREATE INDEX IF NOT EXISTS idx_usb_event_logs_hostname_created ON usb_event_logs (hostname, created_at DESC);
 `;
 
+/**
+ * Đảm bảo database mục tiêu trên PostgreSQL tồn tại trước khi chạy schema DDL.
+ * Luồng xử lý:
+ * 1. Thử kết nối trực tiếp vào `env.databaseUrl`.
+ * 2. Nếu PostgreSQL báo lỗi `3D000` (database does not exist), kết nối tạm sang database hệ thống `/postgres`
+ *    để kiểm tra và tự động chạy `CREATE DATABASE` tạo mới database mục tiêu.
+ * 3. Thử kết nối lại vào pool chính để xác nhận database đã sẵn sàng.
+ * @returns {Promise<void>}
+ */
 async function ensureDatabaseExists() {
   const activePool = getPool();
   try {
@@ -305,6 +362,7 @@ async function ensureDatabaseExists() {
     client.release();
     return;
   } catch (error) {
+    // Mã lỗi 3D000 trong PostgreSQL tương ứng với "invalid_catalog_name" (database chưa tồn tại)
     if (error.code !== "3D000") {
       throw error;
     }
@@ -314,6 +372,7 @@ async function ensureDatabaseExists() {
       throw error;
     }
 
+    // Chuyển đường dẫn URL sang database mặc định /postgres để có quyền tạo database mới
     const parsed = new URL(env.databaseUrl);
     parsed.pathname = "/postgres";
 
@@ -329,6 +388,7 @@ async function ensureDatabaseExists() {
         [dbName],
       );
       if (existing.rowCount === 0) {
+        // Escape dấu ngoặc kép trong tên DB để tránh SQL injection khi tạo identifier động
         const safeName = dbName.replace(/"/g, '""');
         await adminPool.query(`CREATE DATABASE "${safeName}"`);
         console.log(`Đã tự động tạo PostgreSQL database: ${dbName}`);
@@ -337,11 +397,17 @@ async function ensureDatabaseExists() {
       await adminPool.end();
     }
 
+    // Xác minh kết nối lại tới database vừa tạo
     const retryClient = await activePool.connect();
     retryClient.release();
   }
 }
 
+/**
+ * Kết nối tới PostgreSQL và khởi tạo toàn bộ bảng/chỉ mục hệ thống.
+ * @throws {Error} Ném lỗi có ngữ cảnh nếu kết nối hoặc chạy DDL thất bại.
+ * @returns {Promise<import("pg").Pool>} Pool kết nối đang hoạt động.
+ */
 export async function connectDatabase() {
   try {
     await ensureDatabaseExists();
@@ -358,6 +424,10 @@ export async function connectDatabase() {
   }
 }
 
+/**
+ * Đóng toàn bộ kết nối trong `pg.Pool` và giải phóng biến `pool` khi tắt server hoặc script.
+ * @returns {Promise<void>}
+ */
 export async function disconnectDatabase() {
   try {
     if (pool) {
@@ -374,12 +444,23 @@ export async function disconnectDatabase() {
 
 /* --------------------- Schema & Model Engine (pg) --------------------- */
 
+/**
+ * Chuyển đổi tên thuộc tính camelCase (hoặc `_id`, `__v`) sang tên cột snake_case trong PostgreSQL.
+ * @param {string} fieldName - Tên trường ở tầng JavaScript/Schema.
+ * @returns {string} Tên cột tương ứng trong bảng PostgreSQL.
+ */
 function toSnakeCase(fieldName) {
   if (fieldName === "_id") return "id";
   if (fieldName === "__v") return "version";
   return fieldName.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 }
 
+/**
+ * Suy ra tên bảng PostgreSQL mặc định từ tên Model theo quy ước số nhiều tiếng Anh.
+ * Ví dụ: `"Category"` -> `"categories"`, `"Ticket"` -> `"tickets"`.
+ * @param {string} modelName - Tên Model.
+ * @returns {string} Tên bảng mặc định trong PostgreSQL.
+ */
 function defaultTableName(modelName) {
   const snake = modelName
     .replace(/^[A-Z]/, (c) => c.toLowerCase())
@@ -390,6 +471,12 @@ function defaultTableName(modelName) {
   return `${snake}s`;
 }
 
+/**
+ * Chuẩn hóa đặc tả trường trong Schema về dạng object `{ type, ... }`.
+ * Hỗ trợ dạng viết tắt (`String`, `[SubSchema]`, hoặc nested object literal).
+ * @param {*} spec - Định nghĩa trường thô truyền vào `new Schema(...)`.
+ * @returns {Object} Đặc tả trường đã chuẩn hóa.
+ */
 function normalizeFieldSpec(spec) {
   if (!spec || typeof spec !== "object" || spec instanceof Schema) {
     return { type: spec };
@@ -397,13 +484,20 @@ function normalizeFieldSpec(spec) {
   if (Array.isArray(spec)) {
     return { type: spec };
   }
+  // Nếu là object lồng nhau thuần túy (như lastHost), tự động bọc thành sub-Schema
   if (!("type" in spec) && !("ref" in spec) && !("default" in spec) && !("enum" in spec)) {
     return { type: new Schema(spec) };
   }
   return spec;
 }
 
+/**
+ * Lớp định nghĩa cấu trúc Model tương thích API của `mongoose.Schema`.
+ * Vai trò: Lưu trữ định nghĩa trường, tùy chọn (`timestamps`, `optimisticConcurrency`, `toJSON`, `toObject`),
+ * các phương thức instance (`methods`) và hook trước khi lưu (`pre("save", ...)`).
+ */
 export class Schema {
+  /** Tập hợp các kiểu dữ liệu chuẩn được hỗ trợ trong định nghĩa Schema. */
   static Types = Object.freeze({
     ObjectId: "ObjectId",
     String,
@@ -412,6 +506,11 @@ export class Schema {
     Date,
   });
 
+  /**
+   * Khởi tạo Schema mới từ định nghĩa các trường và tùy chọn kèm theo.
+   * @param {Object} definition - Đối tượng khai báo các trường và ràng buộc validation.
+   * @param {Object} [options={}] - Tùy chọn schema (`timestamps`, `optimisticConcurrency`, `collection`, `_id`, `toJSON`, `toObject`).
+   */
   constructor(definition, options = {}) {
     this.definition = definition;
     this.options = options;
@@ -423,6 +522,7 @@ export class Schema {
       this.fields[key] = normalizeFieldSpec(rawSpec);
     }
 
+    // Tự động bổ sung createdAt và updatedAt khi bật tùy chọn timestamps
     if (options.timestamps) {
       if (!this.fields.createdAt) {
         this.fields.createdAt = { type: Date };
@@ -432,16 +532,27 @@ export class Schema {
       }
     }
 
+    // Tự động bổ sung trường __v (ánh xạ sang cột version) cho Optimistic Concurrency Control
     if (options.optimisticConcurrency && !this.fields.__v) {
       this.fields.__v = { type: Number, default: 0 };
     }
   }
 
+  /**
+   * Phương thức giữ chỗ tương thích API `.index()` của Mongoose (chỉ mục thực tế quản lý trong `SCHEMA_SQL`).
+   * @returns {Schema} Chính instance Schema để hỗ trợ gọi chuỗi.
+   */
   index() {
     // Indexes are managed by PostgreSQL DDL in SCHEMA_SQL
     return this;
   }
 
+  /**
+   * Đăng ký middleware hook chạy trước một vòng đời (hiện hỗ trợ `"save"`, ví dụ: hash mật khẩu trước khi lưu).
+   * @param {string} hookName - Tên hook (ví dụ: `"save"`).
+   * @param {Function} fn - Hàm async/sync thực thi với `this` là document.
+   * @returns {Schema} Chính instance Schema để hỗ trợ gọi chuỗi.
+   */
   pre(hookName, fn) {
     if (!this.preHooks[hookName]) {
       this.preHooks[hookName] = [];
@@ -451,6 +562,12 @@ export class Schema {
   }
 }
 
+/**
+ * Ánh xạ mã lỗi PostgreSQL sang mã lỗi tương thích để `errorHandler` xử lý thống nhất.
+ * Cụ thể: mã `23505` (unique_violation) được gán `error.code = 11000`.
+ * @param {Error & {code?: string|number}} error - Lỗi gốc từ thư viện `pg`.
+ * @returns {Error} Lỗi đã được chuẩn hóa mã.
+ */
 function mapPgError(error) {
   if (error?.code === "23505") {
     error.code = 11000;
@@ -458,6 +575,11 @@ function mapPgError(error) {
   return error;
 }
 
+/**
+ * Tạo đối tượng `ValidationError` tương thích Mongoose từ bản đồ lỗi từng trường.
+ * @param {Object<string, {message: string}>} errorsMap - Bản đồ lỗi theo đường dẫn trường.
+ * @returns {Error & {name: string, errors: Object}} Đối tượng lỗi có `name = "ValidationError"`.
+ */
 function createValidationError(errorsMap) {
   const messages = Object.values(errorsMap).map((item) => item.message);
   const error = new Error(messages.join("; "));
@@ -466,6 +588,13 @@ function createValidationError(errorsMap) {
   return error;
 }
 
+/**
+ * Trích xuất cặp `[giá trị cấu hình, thông báo lỗi]` từ tùy chọn validation dạng tuple `[val, msg]`,
+ * object `{ values, message }` hoặc giá trị đơn lẻ.
+ * @param {*} option - Cấu hình rule trong Schema (`required`, `minlength`, `maxlength`, `match`, `min`, `max`).
+ * @param {string} defaultMsg - Thông báo lỗi mặc định nếu rule không chỉ định thông báo riêng.
+ * @returns {[*, string]} Mảng 2 phần tử `[ruleValue, errorMessage]`.
+ */
 function extractTupleOption(option, defaultMsg) {
   if (Array.isArray(option)) {
     return [option[0], option[1] ?? defaultMsg];
@@ -476,6 +605,12 @@ function extractTupleOption(option, defaultMsg) {
   return [option, defaultMsg];
 }
 
+/**
+ * Kiểm tra xem một trường Schema có được lưu trữ dưới dạng cột JSONB trong PostgreSQL hay không
+ * (áp dụng cho mảng hoặc subdocument Schema lồng nhau).
+ * @param {Object} spec - Đặc tả trường Schema.
+ * @returns {boolean} `true` nếu trường là kiểu JSONB.
+ */
 function isJsonField(spec) {
   if (!spec) return false;
   if (Array.isArray(spec.type)) return true;
@@ -483,6 +618,14 @@ function isJsonField(spec) {
   return false;
 }
 
+/**
+ * Ép kiểu và chuẩn hóa giá trị đầu vào theo đặc tả `spec` của Schema
+ * (trim, lowercase, uppercase cho String/ObjectId; ép kiểu Number, Boolean, Date; chuẩn hóa mảng/subdoc).
+ * @param {*} value - Giá trị thô cần chuyển đổi.
+ * @param {Object} spec - Đặc tả trường Schema.
+ * @param {string} schemaFieldKey - Tên trường trong Schema.
+ * @returns {*} Giá trị sau khi ép kiểu.
+ */
 function coerceValue(value, spec, schemaFieldKey) {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -538,6 +681,11 @@ function coerceValue(value, spec, schemaFieldKey) {
   return value;
 }
 
+/**
+ * Tính toán giá trị mặc định (`default`) cho một trường Schema khi dữ liệu đầu vào là `undefined`.
+ * @param {Object} spec - Đặc tả trường Schema.
+ * @returns {*} Giá trị mặc định đã được sao chép/khởi tạo mới.
+ */
 function resolveDefault(spec) {
   if (!("default" in spec)) return undefined;
   const def = spec.default;
@@ -548,6 +696,13 @@ function resolveDefault(spec) {
   return def;
 }
 
+/**
+ * Chuẩn hóa một đối tượng subdocument theo `subSchema`: tự sinh `_id` (trừ khi `_id: false`),
+ * điền giá trị mặc định và ép kiểu từng thuộc tính con.
+ * @param {Object} input - Dữ liệu subdocument thô.
+ * @param {Schema} subSchema - Schema mô tả cấu trúc subdocument.
+ * @returns {Object} Subdocument đã được chuẩn hóa.
+ */
 function normalizeSubdocObject(input, subSchema) {
   const result = {};
   if (subSchema.options._id !== false) {
@@ -569,7 +724,19 @@ function normalizeSubdocObject(input, subSchema) {
   return result;
 }
 
+/**
+ * Kiểm tra tính hợp lệ của một giá trị đối chiếu với toàn bộ rule trong `spec`
+ * (`required`, subdocument đệ quy, kiểu `Date`/`Number`, `enum`, `minlength`/`maxlength`/`match`,
+ * `min`/`max` và custom `validate`). Lỗi phát hiện sẽ được ghi vào `errorsMap`.
+ * @param {*} value - Giá trị cần kiểm tra.
+ * @param {Object} spec - Đặc tả trường Schema.
+ * @param {Object} docContext - Ngữ cảnh `this` (document hoặc subdocument) truyền cho rule dạng hàm.
+ * @param {string} path - Đường dẫn trường phục vụ đánh dấu lỗi trong `errorsMap`.
+ * @param {Object<string, {message: string}>} errorsMap - Đối tượng gom lỗi validation.
+ * @returns {void}
+ */
 function validateValueAgainstSpec(value, spec, docContext, path, errorsMap) {
+  // Kiểm tra điều kiện bắt buộc (hỗ trợ required dạng boolean hoặc hàm phụ thuộc ngữ cảnh document)
   if (spec.required !== undefined) {
     const [reqSpec, reqMsg] = extractTupleOption(
       spec.required,
@@ -587,6 +754,7 @@ function validateValueAgainstSpec(value, spec, docContext, path, errorsMap) {
     return;
   }
 
+  // Kiểm tra đệ quy các phần tử subdocument trong mảng và validator cấp mảng (nếu có)
   if (Array.isArray(spec.type)) {
     const subSchema = spec.type[0];
     if (Array.isArray(value) && subSchema instanceof Schema) {
@@ -616,6 +784,7 @@ function validateValueAgainstSpec(value, spec, docContext, path, errorsMap) {
     return;
   }
 
+  // Kiểm tra đệ quy các trường con của object subdocument
   if (spec.type instanceof Schema) {
     for (const [subKey, subSpec] of Object.entries(spec.type.fields)) {
       validateValueAgainstSpec(
@@ -652,6 +821,7 @@ function validateValueAgainstSpec(value, spec, docContext, path, errorsMap) {
     }
   }
 
+  // Kiểm tra các ràng buộc chuỗi: minlength, maxlength và biểu thức chính quy match
   if (typeof value === "string") {
     if (spec.minlength !== undefined) {
       const [minLen, msg] = extractTupleOption(
@@ -685,6 +855,7 @@ function validateValueAgainstSpec(value, spec, docContext, path, errorsMap) {
     }
   }
 
+  // Kiểm tra các ràng buộc khoảng giá trị số: min và max
   if (typeof value === "number") {
     if (spec.min !== undefined) {
       const [minVal, msg] = extractTupleOption(spec.min, `${path} quá nhỏ.`);
@@ -714,8 +885,15 @@ function validateValueAgainstSpec(value, spec, docContext, path, errorsMap) {
   }
 }
 
+/** Bản đồ đăng ký toàn bộ các `PgModel` theo `modelName` để hỗ trợ tính năng `populate()` tham chiếu chéo. */
 const modelRegistry = new Map();
 
+/**
+ * Tìm tên Model đích được tham chiếu bởi `fieldPath` (hỗ trợ cả đường dẫn lồng như `"assignedUsers.user"`).
+ * @param {Schema} schema - Schema nguồn bắt đầu tra cứu.
+ * @param {string} fieldPath - Đường dẫn trường cần populate.
+ * @returns {string|null} Tên Model tham chiếu (`spec.ref`) hoặc `null` nếu không phải trường tham chiếu.
+ */
 function getReferenceModelName(schema, fieldPath) {
   const parts = fieldPath.split(".");
   let currentSchema = schema;
@@ -736,6 +914,12 @@ function getReferenceModelName(schema, fieldPath) {
   return null;
 }
 
+/**
+ * Thu thập toàn bộ các ID cần truy vấn cho một bước `populate` từ danh sách document nguồn (hỗ trợ mảng lồng nhau).
+ * @param {Array<Object>} docs - Danh sách document nguồn.
+ * @param {Array<string>} parts - Các phân đoạn của đường dẫn trường (tách theo dấu `.`).
+ * @returns {Array<string>} Mảng các chuỗi ID tham chiếu tìm được.
+ */
 function getNestedIds(docs, parts) {
   const ids = [];
   function walk(node, index) {
@@ -761,6 +945,13 @@ function getNestedIds(docs, parts) {
   return ids;
 }
 
+/**
+ * Thay thế các ID tham chiếu trong danh sách document nguồn bằng object đã truy vấn từ `lookupMap`.
+ * @param {Array<Object>} docs - Danh sách document nguồn cần gán dữ liệu populate.
+ * @param {Array<string>} parts - Các phân đoạn của đường dẫn trường.
+ * @param {Map<string, Object>} lookupMap - Bản đồ ánh xạ `id -> bản ghi đích`.
+ * @returns {void}
+ */
 function setNestedPopulated(docs, parts, lookupMap) {
   function walk(node, index) {
     if (node === null || node === undefined) return;
@@ -786,6 +977,13 @@ function setNestedPopulated(docs, parts, lookupMap) {
   }
 }
 
+/**
+ * Thực thi các chỉ thị `populate` cho một tập document bằng truy vấn lô (`$in`) nhằm tránh N+1 query.
+ * @param {Array<Object>} docs - Mảng document hoặc plain object cần populate.
+ * @param {Schema} sourceSchema - Schema của collection nguồn.
+ * @param {Array<{path: string, select: string|null}>} populateList - Danh sách trường cần nối dữ liệu.
+ * @returns {Promise<Array<Object>>} Chính mảng `docs` sau khi đã gán dữ liệu populate.
+ */
 async function applyPopulates(docs, sourceSchema, populateList) {
   if (!docs.length || !populateList.length) return docs;
 
@@ -796,6 +994,7 @@ async function applyPopulates(docs, sourceSchema, populateList) {
     if (!TargetModel) continue;
 
     const parts = pop.path.split(".");
+    // Gom toàn bộ ID duy nhất để chỉ thực hiện 1 câu truy vấn WHERE id = ANY(...) cho mỗi path
     const rawIds = [...new Set(getNestedIds(docs, parts))];
     if (!rawIds.length) {
       setNestedPopulated(docs, parts, new Map());
@@ -814,6 +1013,12 @@ async function applyPopulates(docs, sourceSchema, populateList) {
   return docs;
 }
 
+/**
+ * Chuẩn hóa đối số truyền vào `.populate(...)` (hỗ trợ string, pair `(path, select)`, object `{ path, select }` hoặc mảng).
+ * @param {string|Object|Array} arg1 - Đường dẫn hoặc cấu hình populate.
+ * @param {string} [arg2] - Chuỗi trường cần chọn khi `arg1` là string.
+ * @returns {Array<{path: string, select: string|null}>} Danh sách cấu hình populate chuẩn hóa.
+ */
 function normalizePopulateArgs(arg1, arg2) {
   if (!arg1) return [];
   if (Array.isArray(arg1)) {
@@ -828,8 +1033,16 @@ function normalizePopulateArgs(arg1, arg2) {
   return [];
 }
 
+/**
+ * Phân tích chuỗi `.select(...)` theo cú pháp Mongoose (`"a b"`, `"-password"`, `"+tokenVersion"`, `"sub.field"`)
+ * để xác định tập các trường cấp cao nhất và trường con được phép trả về.
+ * @param {Schema} schema - Schema của Model hiện tại.
+ * @param {string|null} selectStr - Chuỗi chỉ định trường cần lấy hoặc loại trừ.
+ * @returns {{visibleFields: Set<string>, subFieldSelections: Map<string, Set<string>>}} Đặc tả lọc trường.
+ */
 function parseSelectSpec(schema, selectStr) {
   const allFields = ["_id", ...Object.keys(schema.fields)];
+  // Mặc định ẩn các trường có cấu hình `select: false` (như password, tokenVersion)
   const defaultVisible = allFields.filter(
     (field) => schema.fields[field]?.select !== false,
   );
@@ -854,6 +1067,7 @@ function parseSelectSpec(schema, selectStr) {
   const hasMinus = tokens.some((t) => t.startsWith("-"));
 
   let visibleFields;
+  // Nếu chỉ định danh sách trường lấy tường minh (không có + / -), chỉ giữ _id và các trường đó
   if (hasInclude && !hasPlus && !hasMinus) {
     visibleFields = new Set(["_id"]);
   } else {
@@ -884,6 +1098,12 @@ function parseSelectSpec(schema, selectStr) {
   return { visibleFields, subFieldSelections };
 }
 
+/**
+ * Lọc các trường của một bản ghi thô dựa trên kết quả từ `parseSelectSpec`.
+ * @param {Object} rawObj - Dữ liệu bản ghi đầy đủ đã ánh xạ từ PostgreSQL row.
+ * @param {{visibleFields: Set<string>, subFieldSelections: Map<string, Set<string>>}} selectSpec - Đặc tả lọc trường.
+ * @returns {Object} Bản ghi chỉ gồm các trường được phép hiển thị.
+ */
 function projectRowFields(rawObj, selectSpec) {
   const { visibleFields, subFieldSelections } = selectSpec;
   const result = {};
@@ -911,6 +1131,11 @@ function projectRowFields(rawObj, selectSpec) {
   return result;
 }
 
+/**
+ * Sao chép sâu giá trị thuần (Date, Array, Plain Object) để tách biệt snapshot đã lưu với bản đang chỉnh sửa.
+ * @param {*} val - Giá trị cần sao chép.
+ * @returns {*} Bản sao độc lập của giá trị đầu vào.
+ */
 function clonePlainValue(val) {
   if (val instanceof Date) return new Date(val.getTime());
   if (Array.isArray(val)) return val.map(clonePlainValue);
@@ -924,6 +1149,15 @@ function clonePlainValue(val) {
   return val;
 }
 
+/**
+ * Biên dịch đối tượng filter kiểu Mongoose/MongoDB thành mệnh đề `WHERE` tham số hóa của PostgreSQL.
+ * Hỗ trợ: `$or`, `$and`, `$expr.$gte`, truy vấn mảng JSONB (`jsonb_array_elements`), đường dẫn JSONB lồng (`->>`),
+ * `RegExp` (`~` / `~*`), `$ne`, `$in`, `$nin`, `$gte`, `$gt`, `$lte`, `$lt`, `$regex`, `$type`, `null`.
+ * @param {Object} filter - Bộ lọc truy vấn kiểu Mongoose.
+ * @param {Schema} schema - Schema dùng để nhận diện cột JSONB hay cột thường.
+ * @param {number} [startIndex=1] - Chỉ số bắt đầu cho placeholder `$1, $2, ...` của PostgreSQL.
+ * @returns {{clause: string, params: Array<*>}} Mệnh đề SQL `WHERE` và mảng tham số tương ứng.
+ */
 function compileWhereClause(filter, schema, startIndex = 1) {
   const params = [];
 
@@ -932,6 +1166,7 @@ function compileWhereClause(filter, schema, startIndex = 1) {
     return `$${startIndex + params.length - 1}`;
   }
 
+  // Tạo biểu thức truy cập cột thường hoặc khóa JSONB lồng nhau (ví dụ: lastHost.hostname -> "last_host"->>'hostname')
   function buildColumnExpr(fieldPath) {
     if (fieldPath.includes(".")) {
       const [root, ...rest] = fieldPath.split(".");
@@ -993,6 +1228,7 @@ function compileWhereClause(filter, schema, startIndex = 1) {
       }
 
       // Check JSONB array dot-path like "assignedUsers.user"
+      // Nếu trường gốc là mảng JSONB, dùng EXISTS + jsonb_array_elements để tìm phần tử khớp điều kiện
       if (key.includes(".")) {
         const [rootField, ...nested] = key.split(".");
         const rootSpec = schema.fields[rootField];
@@ -1028,6 +1264,7 @@ function compileWhereClause(filter, schema, startIndex = 1) {
         continue;
       }
 
+      // Biên dịch các toán tử so sánh MongoDB ($ne, $in, $nin, $gte, $gt, $lte, $lt, $regex, $type) sang SQL
       if (
         condition !== null &&
         typeof condition === "object" &&
@@ -1120,6 +1357,12 @@ function compileWhereClause(filter, schema, startIndex = 1) {
   return { clause, params };
 }
 
+/**
+ * Biên dịch đối tượng `.sort({ field: -1 | 1 | "desc" | "asc" })` thành mệnh đề `ORDER BY` của PostgreSQL.
+ * Sử dụng `DESC NULLS LAST` cho sắp xếp giảm dần để tương thích hành vi xếp giá trị null của MongoDB.
+ * @param {Object|null} sortObj - Đối tượng cấu hình sắp xếp.
+ * @returns {string} Chuỗi `ORDER BY ...` hoặc chuỗi rỗng nếu không có cấu hình sort.
+ */
 function compileSortClause(sortObj) {
   if (!sortObj || typeof sortObj !== "object") return "";
   const entries = Object.entries(sortObj);
@@ -1132,6 +1375,13 @@ function compileSortClause(sortObj) {
   return `ORDER BY ${orders.join(", ")}`;
 }
 
+/**
+ * Ánh xạ một hàng dữ liệu snake_case trả về từ PostgreSQL (`row`) sang object camelCase theo `schema`,
+ * đồng thời chuyển đổi `id -> _id` và khôi phục các trường chuỗi ISO ngày tháng bên trong JSONB về đối tượng `Date`.
+ * @param {Object} row - Bản ghi thô từ `pg` query result.
+ * @param {Schema} schema - Schema mô tả kiểu dữ liệu từng trường.
+ * @returns {Object} Object JavaScript thuần đã chuẩn hóa kiểu dữ liệu.
+ */
 function rowToRawObject(row, schema) {
   const obj = { _id: row.id };
   for (const [key, spec] of Object.entries(schema.fields)) {
@@ -1170,9 +1420,22 @@ function rowToRawObject(row, schema) {
   return obj;
 }
 
+/**
+ * Khởi tạo bộ đánh giá Aggregation Pipeline chạy trên tập bản ghi đã tải từ PostgreSQL.
+ * Hỗ trợ các stage: `$match`, `$group` (`$sum`, `$avg`), `$project`, `$sort`, `$facet`
+ * cùng các biểu thức `$eq`, `$in`, `$cond`, `$subtract`, `$dateToString`.
+ * @returns {(initialRows: Array<Object>, pipeline: Array<Object>) => Array<Object>} Hàm `runPipeline`.
+ */
 function createAggregateEvaluator() {
   const dateFormatters = new Map();
 
+  /**
+   * Định dạng giá trị ngày theo múi giờ chỉ định (cache `Intl.DateTimeFormat` theo từng `timeZone` để tối ưu hiệu năng).
+   * @param {Date|string|number} dateVal - Giá trị thời gian nguồn.
+   * @param {string} format - Chuỗi định dạng (hỗ trợ `"%Y-%m-%d"`, mặc định trả về ISO string).
+   * @param {string} [timeZone="UTC"] - Múi giờ IANA (ví dụ: `"Asia/Ho_Chi_Minh"`).
+   * @returns {string|null} Chuỗi ngày đã định dạng hoặc `null` nếu ngày không hợp lệ.
+   */
   function formatDateInZone(dateVal, format, timeZone = "UTC") {
     const d = dateVal instanceof Date ? dateVal : new Date(dateVal);
     if (Number.isNaN(d.getTime())) return null;
@@ -1199,6 +1462,12 @@ function createAggregateEvaluator() {
     return d.toISOString();
   }
 
+  /**
+   * Đánh giá một biểu thức Aggregation (`$field`, `$eq`, `$in`, `$cond`, `$subtract`, `$dateToString`) trên một document.
+   * @param {*} expr - Biểu thức hoặc giá trị hằng.
+   * @param {Object} doc - Document hiện tại đang xét.
+   * @returns {*} Kết quả sau khi tính toán biểu thức.
+   */
   function evalExpr(expr, doc) {
     if (expr === null || expr === undefined) return expr;
     if (typeof expr === "string") {
@@ -1241,6 +1510,12 @@ function createAggregateEvaluator() {
     return expr;
   }
 
+  /**
+   * Kiểm tra một document có thỏa mãn điều kiện trong stage `$match` hay không (dùng cho các `$match` nằm sau stage khác).
+   * @param {Object} doc - Document hiện tại.
+   * @param {Object} filter - Bộ lọc điều kiện `$match`.
+   * @returns {boolean} `true` nếu khớp điều kiện.
+   */
   function matchDoc(doc, filter) {
     for (const [key, cond] of Object.entries(filter ?? {})) {
       if (key === "$expr") {
@@ -1276,6 +1551,12 @@ function createAggregateEvaluator() {
     return true;
   }
 
+  /**
+   * Thực thi một stage đơn lẻ (`$match`, `$group`, `$project`, `$sort`, `$facet`) trên tập bản ghi `rows`.
+   * @param {Array<Object>} rows - Tập dữ liệu đầu vào của stage.
+   * @param {Object} stage - Định nghĩa stage.
+   * @returns {Array<Object>} Tập dữ liệu đầu ra sau stage.
+   */
   function runStage(rows, stage) {
     if ("$match" in stage) {
       return rows.filter((row) => matchDoc(row, stage.$match));
@@ -1285,6 +1566,7 @@ function createAggregateEvaluator() {
       const groupSpec = stage.$group;
       const groups = new Map();
 
+      // Gom nhóm bản ghi theo khóa _id tính từ biểu thức groupSpec._id
       for (const row of rows) {
         const rawKey = evalExpr(groupSpec._id, row);
         const mapKey =
@@ -1364,6 +1646,12 @@ function createAggregateEvaluator() {
     return rows;
   }
 
+  /**
+   * Chạy tuần tự toàn bộ danh sách các stage trong `pipeline` từ dữ liệu ban đầu `initialRows`.
+   * @param {Array<Object>} initialRows - Danh sách bản ghi ban đầu.
+   * @param {Array<Object>} pipeline - Chuỗi các stage aggregation.
+   * @returns {Array<Object>} Kết quả cuối cùng của pipeline.
+   */
   function runPipeline(initialRows, pipeline) {
     let current = initialRows;
     for (const stage of pipeline) {
@@ -1375,20 +1663,39 @@ function createAggregateEvaluator() {
   return runPipeline;
 }
 
+/** Hàm thực thi Aggregation Pipeline được khởi tạo sẵn từ `createAggregateEvaluator()`. */
 const runAggregatePipeline = createAggregateEvaluator();
 
+/**
+ * Khởi tạo lớp Model (`PgModel`) và Document (`PgDocument`) gắn với một bảng PostgreSQL,
+ * cung cấp giao diện truy vấn và lưu trữ tương thích Mongoose (`create`, `find`, `findOne`, `save`, `aggregate`...).
+ * @param {string} modelName - Tên Model (ví dụ: `"Ticket"`, `"User"`).
+ * @param {Schema} schema - Đối tượng `Schema` định nghĩa trường, hook và phương thức.
+ * @param {string|null} [explicitTableName=null] - Tên bảng PostgreSQL tường minh (nếu khác tên mặc định).
+ * @returns {typeof PgModel} Lớp Model đã được đăng ký vào `modelRegistry`.
+ */
 export function createModel(modelName, schema, explicitTableName = null) {
   const tableName =
     explicitTableName || schema.options?.collection || defaultTableName(modelName);
   const schemaFields = schema.fields;
   const allFieldKeys = ["_id", ...Object.keys(schemaFields).filter((k) => k !== "_id")];
 
+  /**
+   * Đại diện cho một bản ghi (document) của bảng `tableName`, theo dõi trạng thái mới/cũ (`_isNew`),
+   * các trường đã chỉnh sửa (`_modifiedFields`), snapshot đã lưu (`_persistedSnapshot`) và hỗ trợ `validate()`, `save()`, `populate()`.
+   */
   class PgDocument {
+    /**
+     * Khởi tạo một instance document mới hoặc dựng lại (hydrate) từ bản ghi PostgreSQL.
+     * @param {Object} [initialData={}] - Dữ liệu ban đầu của document.
+     * @param {{isNew?: boolean, fromDb?: boolean, allowedFields?: Set<string>|null}} [options={}] - Cờ trạng thái nguồn dữ liệu.
+     */
     constructor(initialData = {}, options = {}) {
       const isNew = options.isNew ?? true;
       const fromDb = options.fromDb ?? false;
       const allowedFields = options.allowedFields ?? null;
 
+      // Lưu các metadata nội bộ dạng non-enumerable để tránh xuất hiện khi JSON.stringify / Object.keys
       Object.defineProperty(this, "_isNew", {
         value: isNew,
         writable: true,
@@ -1419,6 +1726,7 @@ export function createModel(modelName, schema, explicitTableName = null) {
         ? allFieldKeys.filter((k) => allowedFields.has(k))
         : allFieldKeys;
 
+      // Định nghĩa getter/setter cho từng trường nhằm tự động ép kiểu và đánh dấu _modifiedFields khi thay đổi
       for (const key of allFieldKeys) {
         Object.defineProperty(this, key, {
           enumerable: keysToInit.includes(key),
@@ -1436,11 +1744,13 @@ export function createModel(modelName, schema, explicitTableName = null) {
       }
 
       if (fromDb) {
+        // Khi tải từ DB, sao chép nguyên giá trị và lưu snapshot để đối chiếu optimistic concurrency (__v)
         for (const key of keysToInit) {
           this._data[key] = initialData[key];
           this._persistedSnapshot[key] = clonePlainValue(initialData[key]);
         }
       } else {
+        // Khi tạo document mới trong bộ nhớ, tự sinh _id, timestamps và áp dụng giá trị mặc định
         const now = new Date();
         if (!("_id" in schemaFields)) {
           this._data._id =
@@ -1469,6 +1779,12 @@ export function createModel(modelName, schema, explicitTableName = null) {
       }
     }
 
+    /**
+     * Kiểm tra xem một trường đã bị thay đổi giá trị kể từ khi tạo hoặc tải từ DB hay chưa.
+     * Hữu ích trong `pre("save")` hook (ví dụ: chỉ bcrypt hash lại mật khẩu khi `isModified("password")`).
+     * @param {string} fieldName - Tên trường cần kiểm tra.
+     * @returns {boolean} `true` nếu trường có dữ liệu mới hoặc đã được gán lại.
+     */
     isModified(fieldName) {
       if (this._isNew) {
         return this._data[fieldName] !== undefined;
@@ -1476,6 +1792,11 @@ export function createModel(modelName, schema, explicitTableName = null) {
       return this._modifiedFields.has(fieldName);
     }
 
+    /**
+     * Chuẩn hóa lại toàn bộ các trường JSONB (mảng / subdocument) trước khi validate hoặc lưu DB,
+     * đảm bảo các phần tử thêm bằng `.push(...)` vẫn được sinh `_id` và ép kiểu đúng.
+     * @returns {void}
+     */
     _normalizeJsonFields() {
       for (const [key, spec] of Object.entries(schemaFields)) {
         if (isJsonField(spec) && this._data[key] !== undefined) {
@@ -1484,10 +1805,16 @@ export function createModel(modelName, schema, explicitTableName = null) {
       }
     }
 
+    /**
+     * Thực thi kiểm tra hợp lệ toàn bộ các trường đã nạp hoặc vừa sửa đổi dựa trên rule trong Schema.
+     * @throws {Error} Ném `ValidationError` nếu có ít nhất một trường không hợp lệ.
+     * @returns {Promise<void>}
+     */
     async validate() {
       this._normalizeJsonFields();
       const errorsMap = {};
       for (const [key, spec] of Object.entries(schemaFields)) {
+        // Bỏ qua các trường không được select khi fetch và cũng không bị chỉnh sửa
         if (
           !this._isNew &&
           !this._loadedFields.has(key) &&
@@ -1508,6 +1835,18 @@ export function createModel(modelName, schema, explicitTableName = null) {
       }
     }
 
+    /**
+     * Lưu document xuống PostgreSQL (`INSERT` nếu mới hoặc `UPDATE` nếu đã tồn tại).
+     * Luồng xử lý:
+     * 1. Chuẩn hóa trường JSONB và chạy `validate()` (trừ khi `validateBeforeSave: false`).
+     * 2. Chạy tuần tự các hook `pre("save")`.
+     * 3. Tự động cập nhật `createdAt`/`updatedAt` nếu bật `timestamps`.
+     * 4. Nếu `_isNew`, thực hiện `INSERT INTO ... RETURNING *` và chuyển `_isNew = false`.
+     * 5. Nếu đã tồn tại, thực hiện `UPDATE ... WHERE id = ...` (kèm kiểm tra `version` nếu bật
+     *    `optimisticConcurrency`, ném `VersionError` khi phát hiện xung đột ghi đồng thời).
+     * @param {{validateBeforeSave?: boolean}} [options={}] - Tùy chọn lưu bản ghi.
+     * @returns {Promise<PgDocument>} Chính instance document sau khi đồng bộ dữ liệu mới nhất từ DB.
+     */
     async save(options = {}) {
       this._normalizeJsonFields();
       if (options.validateBeforeSave !== false) {
@@ -1598,6 +1937,7 @@ export function createModel(modelName, schema, explicitTableName = null) {
         setClauses.push(`${colName} = $${values.length}`);
       }
 
+      // Tăng version khi bật Optimistic Concurrency Control để phát hiện xung đột cập nhật song song
       if (schema.options.optimisticConcurrency) {
         const nextVersion = Number(this._data.__v ?? 0) + 1;
         values.push(nextVersion);
@@ -1638,12 +1978,22 @@ export function createModel(modelName, schema, explicitTableName = null) {
       }
     }
 
+    /**
+     * Nạp dữ liệu tham chiếu trực tiếp trên instance document hiện tại.
+     * @param {string|Object|Array} arg1 - Tên trường hoặc cấu hình populate.
+     * @param {string} [arg2] - Chuỗi select trường cần lấy từ bảng đích.
+     * @returns {Promise<PgDocument>} Chính instance document sau khi đã populate.
+     */
     async populate(arg1, arg2) {
       const populateList = normalizePopulateArgs(arg1, arg2);
       await applyPopulates([this._data], schema, populateList);
       return this;
     }
 
+    /**
+     * Xóa bản ghi tương ứng với document hiện tại khỏi PostgreSQL theo khóa chính `id`.
+     * @returns {Promise<{deletedCount: number}>} Số lượng bản ghi đã xóa (0 hoặc 1).
+     */
     async deleteOne() {
       const result = await getPool().query(
         `DELETE FROM ${tableName} WHERE "id" = $1`,
@@ -1652,6 +2002,11 @@ export function createModel(modelName, schema, explicitTableName = null) {
       return { deletedCount: result.rowCount ?? 0 };
     }
 
+    /**
+     * Chuyển document sang plain object chỉ chứa các trường enumerable và áp dụng hàm `transform` (nếu có).
+     * @param {{transform?: Function}|undefined} transformOption - Cấu hình `toJSON` hoặc `toObject` của Schema.
+     * @returns {Object} Plain object đại diện cho document.
+     */
     _toPlain(transformOption) {
       const plain = {};
       for (const key of allFieldKeys) {
@@ -1666,20 +2021,39 @@ export function createModel(modelName, schema, explicitTableName = null) {
       return plain;
     }
 
+    /**
+     * Chuyển đổi document sang Plain JS Object áp dụng cấu hình `schema.options.toObject`.
+     * @returns {Object} Plain object.
+     */
     toObject() {
       return this._toPlain(schema.options.toObject);
     }
 
+    /**
+     * Chuyển đổi document khi serialize JSON (ví dụ: `response.json(...)`) áp dụng `schema.options.toJSON`.
+     * @returns {Object} Plain object đã lọc/biến đổi trường nhạy cảm (như ẩn password).
+     */
     toJSON() {
       return this._toPlain(schema.options.toJSON);
     }
   }
 
+  // Gắn các instance method tùy chỉnh từ schema.methods lên prototype của PgDocument
   for (const [methodName, fn] of Object.entries(schema.methods)) {
     PgDocument.prototype[methodName] = fn;
   }
 
+  /**
+   * Bộ dựng truy vấn nối chuỗi (Thenable Query Builder) mô phỏng `mongoose.Query`.
+   * Hỗ trợ `.select()`, `.populate()`, `.sort()`, `.skip()`, `.limit()`, `.lean()` và `.exec()` / `await`.
+   */
   class QueryBuilder {
+    /**
+     * Khởi tạo QueryBuilder cho một chế độ truy vấn cụ thể.
+     * @param {"find"|"findOne"|"findOneAndUpdate"|"findByIdAndDelete"} mode - Loại thao tác truy vấn.
+     * @param {Object} [filter={}] - Điều kiện lọc bản ghi.
+     * @param {Object} [extra={}] - Tham số bổ sung (`update`, `options`) cho `findOneAndUpdate`.
+     */
     constructor(mode, filter = {}, extra = {}) {
       this._mode = mode; // "find" | "findOne" | "findOneAndUpdate" | "findByIdAndDelete"
       this._filter = filter;
@@ -1692,36 +2066,47 @@ export function createModel(modelName, schema, explicitTableName = null) {
       this._isLean = false;
     }
 
+    /** Chỉ định các trường cần lấy hoặc loại trừ tương tự Mongoose `.select()`. */
     select(selectStr) {
       this._selectStr = selectStr;
       return this;
     }
 
+    /** Đăng ký nạp thêm dữ liệu từ các bảng tham chiếu cho kết quả truy vấn. */
     populate(arg1, arg2) {
       this._populates.push(...normalizePopulateArgs(arg1, arg2));
       return this;
     }
 
+    /** Thiết lập thứ tự sắp xếp bản ghi (`{ field: -1 | 1 }`). */
     sort(sortObj) {
       this._sortObj = sortObj;
       return this;
     }
 
+    /** Bỏ qua `value` bản ghi đầu tiên (`OFFSET` trong SQL) phục vụ phân trang. */
     skip(value) {
       this._skipVal = value;
       return this;
     }
 
+    /** Giới hạn số lượng bản ghi trả về tối đa (`LIMIT` trong SQL). */
     limit(value) {
       this._limitVal = value;
       return this;
     }
 
+    /** Bật chế độ trả về plain JS object thuần thay vì `PgDocument` để tăng hiệu năng đọc. */
     lean() {
       this._isLean = true;
       return this;
     }
 
+    /**
+     * Biên dịch câu lệnh SQL tương ứng với `this._mode`, thực thi trên `pg.Pool`
+     * và chuyển qua `_hydrate()` để lọc trường, populate và đóng gói kết quả.
+     * @returns {Promise<PgDocument|Array<PgDocument>|Object|Array<Object>|null>} Kết quả truy vấn.
+     */
     async exec() {
       const activePool = getPool();
 
@@ -1768,6 +2153,13 @@ export function createModel(modelName, schema, explicitTableName = null) {
       return this._hydrate(result.rows, false);
     }
 
+    /**
+     * Biến đổi các dòng SQL thô thành plain object (khi `.lean()`) hoặc `PgDocument`,
+     * áp dụng `.select()` và thực thi `.populate()`.
+     * @param {Array<Object>} rows - Các dòng dữ liệu trả về từ PostgreSQL.
+     * @param {boolean} single - `true` nếu chỉ trả về một phần tử đơn lẻ (`findOne`), `false` nếu trả về mảng.
+     * @returns {Promise<PgDocument|Array<PgDocument>|Object|Array<Object>>} Dữ liệu đã hydrate.
+     */
     async _hydrate(rows, single) {
       const selectSpec = parseSelectSpec(schema, this._selectStr);
       const rawObjects = rows.map((row) => rowToRawObject(row, schema));
@@ -1800,19 +2192,34 @@ export function createModel(modelName, schema, explicitTableName = null) {
       return single ? docs[0] : docs;
     }
 
+    /** Hỗ trợ cú pháp `await Model.find(...)` trực tiếp (Thenable interface). */
     then(resolve, reject) {
       return this.exec().then(resolve, reject);
     }
 
+    /** Hỗ trợ bắt lỗi `.catch(...)` trực tiếp trên QueryBuilder. */
     catch(reject) {
       return this.exec().catch(reject);
     }
 
+    /** Hỗ trợ `.finally(...)` trực tiếp trên QueryBuilder. */
     finally(cb) {
       return this.exec().finally(cb);
     }
   }
 
+  /**
+   * Thực thi nguyên tử (atomic) thao tác tìm và cập nhật một bản ghi trong PostgreSQL.
+   * Hỗ trợ:
+   * - `options.upsert`: Dùng `INSERT ... ON CONFLICT ("id") DO UPDATE` (ví dụ: tăng sequence trong `TicketCounter`).
+   * - Các toán tử `$set`, `$inc`, `$push` (nối mảng JSONB), `$max` (`GREATEST`) và `$setOnInsert`.
+   * - Dùng `CTE ... FOR UPDATE` để khóa hàng trong lúc cập nhật và trả về bản ghi mới (`options.new !== false`)
+   *   hoặc bản ghi trước khi cập nhật (`options.new === false`).
+   * @param {Object} filter - Điều kiện tìm bản ghi cần cập nhật.
+   * @param {Object} [update={}] - Dữ liệu và toán tử cập nhật.
+   * @param {Object} [options={}] - Tùy chọn `{ upsert, new }`.
+   * @returns {Promise<Object|null>} Bản ghi PostgreSQL sau/trước khi cập nhật hoặc `null` nếu không khớp.
+   */
   async function executeFindOneAndUpdate(filter, update = {}, options = {}) {
     const activePool = getPool();
     const now = new Date();
@@ -1829,6 +2236,7 @@ export function createModel(modelName, schema, explicitTableName = null) {
       }
     }
 
+    // Nhánh UPSERT theo khóa chính id: chèn mới nếu chưa có, hoặc cập nhật cộng dồn nếu xung đột id
     if (options.upsert && filter?._id !== undefined) {
       const idVal = String(filter._id);
       const insertFields = { _id: idVal, ...setOnInsertObj, ...setObj };
@@ -1897,6 +2305,7 @@ export function createModel(modelName, schema, explicitTableName = null) {
       setParts.push(`${col} = ${tableName}.${col} + $${params.length}`);
     }
 
+    // Hỗ trợ $push vào cột mảng JSONB bằng toán tử nối JSONB (||)
     for (const [k, pushedItem] of Object.entries(pushObj)) {
       const col = `"${toSnakeCase(k)}"`;
       const spec = schemaFields[k];
@@ -1922,6 +2331,7 @@ export function createModel(modelName, schema, explicitTableName = null) {
       setParts.push(`"updated_at" = $${params.length}`);
     }
 
+    // Khóa bản ghi mục tiêu bằng FOR UPDATE để đảm bảo cập nhật an toàn dưới tải đồng thời
     const returnUpdated = options.new !== false;
     const sql = returnUpdated
       ? `
@@ -1955,39 +2365,56 @@ export function createModel(modelName, schema, explicitTableName = null) {
     }
   }
 
+  /**
+   * Lớp Model công khai trả về từ `createModel(...)`, cung cấp các phương thức static
+   * tương thích Mongoose (`find`, `findOne`, `findById`, `create`, `countDocuments`, `aggregate`...).
+   * @extends PgDocument
+   */
   class PgModel extends PgDocument {
     static modelName = modelName;
     static tableName = tableName;
     static schema = schema;
 
+    /** Phương thức giữ chỗ tương thích `Model.init()` (index đã tạo trong `SCHEMA_SQL`). */
     static async init() {
       return true;
     }
 
+    /** Tạo truy vấn tìm kiếm danh sách bản ghi thỏa mãn `filter`. */
     static find(filter = {}) {
       return new QueryBuilder("find", filter);
     }
 
+    /** Tạo truy vấn tìm kiếm bản ghi đầu tiên thỏa mãn `filter`. */
     static findOne(filter = {}) {
       return new QueryBuilder("findOne", filter);
     }
 
+    /** Tạo truy vấn tìm kiếm bản ghi theo khóa chính `_id`. */
     static findById(id) {
       return new QueryBuilder("findOne", { _id: id });
     }
 
+    /** Tạo truy vấn tìm một bản ghi theo `filter` và cập nhật nguyên tử theo `update`. */
     static findOneAndUpdate(filter, update, options = {}) {
       return new QueryBuilder("findOneAndUpdate", filter, { update, options });
     }
 
+    /** Tạo truy vấn tìm bản ghi theo `_id` và cập nhật nguyên tử theo `update`. */
     static findByIdAndUpdate(id, update, options = {}) {
       return new QueryBuilder("findOneAndUpdate", { _id: id }, { update, options });
     }
 
+    /** Tạo truy vấn xóa một bản ghi theo `_id` và trả về bản ghi vừa xóa. */
     static findByIdAndDelete(id) {
       return new QueryBuilder("findByIdAndDelete", { _id: id });
     }
 
+    /**
+     * Khởi tạo và lưu một bản ghi hoặc danh sách bản ghi mới xuống PostgreSQL (kèm validate và pre-save hooks).
+     * @param {Object|Array<Object>} input - Dữ liệu một document hoặc mảng nhiều document.
+     * @returns {Promise<PgDocument|Array<PgDocument>>} Document hoặc mảng document đã lưu.
+     */
     static async create(input) {
       if (Array.isArray(input)) {
         const docs = [];
@@ -2003,6 +2430,11 @@ export function createModel(modelName, schema, explicitTableName = null) {
       return doc;
     }
 
+    /**
+     * Kiểm tra nhanh xem có ít nhất một bản ghi thỏa mãn `filter` hay không.
+     * @param {Object} [filter={}] - Điều kiện lọc.
+     * @returns {Promise<{_id: string}|null>} Object chứa `_id` bản ghi đầu tiên hoặc `null`.
+     */
     static async exists(filter = {}) {
       const { clause, params } = compileWhereClause(filter, schema, 1);
       const result = await getPool().query(
@@ -2012,6 +2444,11 @@ export function createModel(modelName, schema, explicitTableName = null) {
       return result.rows[0] ? { _id: result.rows[0].id } : null;
     }
 
+    /**
+     * Đếm tổng số bản ghi thỏa mãn điều kiện `filter`.
+     * @param {Object} [filter={}] - Điều kiện lọc.
+     * @returns {Promise<number>} Số lượng bản ghi đếm được.
+     */
     static async countDocuments(filter = {}) {
       const { clause, params } = compileWhereClause(filter, schema, 1);
       const result = await getPool().query(
@@ -2021,6 +2458,11 @@ export function createModel(modelName, schema, explicitTableName = null) {
       return result.rows[0]?.total ?? 0;
     }
 
+    /**
+     * Xóa tối đa 1 bản ghi đầu tiên thỏa mãn `filter`.
+     * @param {Object} [filter={}] - Điều kiện lọc.
+     * @returns {Promise<{deletedCount: number}>} Số bản ghi đã xóa.
+     */
     static async deleteOne(filter = {}) {
       const { clause, params } = compileWhereClause(filter, schema, 1);
       const result = await getPool().query(
@@ -2030,6 +2472,11 @@ export function createModel(modelName, schema, explicitTableName = null) {
       return { deletedCount: result.rowCount ?? 0 };
     }
 
+    /**
+     * Xóa toàn bộ bản ghi thỏa mãn `filter`.
+     * @param {Object} [filter={}] - Điều kiện lọc.
+     * @returns {Promise<{deletedCount: number}>} Tổng số bản ghi đã xóa.
+     */
     static async deleteMany(filter = {}) {
       const { clause, params } = compileWhereClause(filter, schema, 1);
       const result = await getPool().query(
@@ -2039,10 +2486,18 @@ export function createModel(modelName, schema, explicitTableName = null) {
       return { deletedCount: result.rowCount ?? 0 };
     }
 
+    /**
+     * Thực thi Aggregation Pipeline trên bảng PostgreSQL.
+     * Tối ưu hóa bằng cách đẩy các stage `$match` đứng đầu pipeline xuống thành SQL `WHERE`
+     * trước khi chạy các stage còn lại (`$group`, `$sort`, `$facet`...) trên JavaScript.
+     * @param {Array<Object>} [pipeline=[]] - Mảng các stage aggregation.
+     * @returns {Promise<Array<Object>>} Kết quả sau toàn bộ pipeline.
+     */
     static async aggregate(pipeline = []) {
       const leadingSqlMatches = [];
       let stageIndex = 0;
 
+      // Gom các stage $match liên tiếp ở đầu pipeline để lọc trước ở tầng SQL PostgreSQL
       while (
         stageIndex < pipeline.length &&
         "$match" in pipeline[stageIndex]
@@ -2068,6 +2523,7 @@ export function createModel(modelName, schema, explicitTableName = null) {
     }
   }
 
+  // Đăng ký Model vào registry để các Model khác có thể tham chiếu qua populate()
   modelRegistry.set(modelName, PgModel);
   return PgModel;
 }

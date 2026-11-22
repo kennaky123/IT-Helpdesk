@@ -1,3 +1,14 @@
+/**
+ * Trang Báo Cáo Hiệu Suất & Tài Sản CMDB (Admin Reports).
+ *
+ * Vai trò trong hệ thống IT Helpdesk:
+ * - Cung cấp góc nhìn phân tích chuyên sâu cho quản trị viên dựa trên dữ liệu thực tế từ PostgreSQL:
+ *   + So sánh lưu lượng ticket phát sinh mới và đã giải quyết trong 7 ngày gần nhất.
+ *   + Cơ cấu phân bổ sự cố theo danh mục dịch vụ (PieChart).
+ *   + Thống kê tình trạng phân bổ tài sản thiết bị CNTT (CMDB: đang dùng, trong kho, bảo trì).
+ *   + Bảng đánh giá khối lượng công việc và hiệu suất hoàn thành của từng kỹ thuật viên.
+ * - Cho phép xuất báo cáo lưu lượng 7 ngày ra tệp CSV để lưu trữ hoặc báo cáo định kỳ.
+ */
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Clock3, Download, Gauge, Ticket } from "lucide-react";
 import { useMemo } from "react";
@@ -23,6 +34,7 @@ import useAdminDashboard from "../../hooks/useAdminDashboard.js";
 import { getAssets } from "../../services/assetService.js";
 import { getDashboardErrorMessage } from "../../services/dashboardService.js";
 
+// Bảng màu xoay vòng áp dụng cho các lát cắt của biểu đồ cơ cấu danh mục sự cố
 const COLORS = [
   "#6647f0",
   "#0091ff",
@@ -32,6 +44,7 @@ const COLORS = [
   "#646464",
 ];
 
+// Ánh xạ mã loại thiết bị CMDB sang nhãn tiếng Việt dễ đọc trong bảng thống kê
 const ASSET_TYPE_LABELS = {
   laptop: "Laptop / Máy tính xách tay",
   desktop: "PC / Workstation",
@@ -41,13 +54,20 @@ const ASSET_TYPE_LABELS = {
   other: "Thiết bị khác",
 };
 
+/**
+ * Component chính của trang Báo cáo hiệu suất & Tài sản CMDB.
+ * Kết hợp dữ liệu thống kê ticket từ useAdminDashboard với dữ liệu danh mục thiết bị từ assetService.
+ */
 function AdminReportsPage() {
+  // Luồng lấy dữ liệu 1: truy vấn dữ liệu tổng hợp ticket và hiệu suất kỹ thuật viên
   const { data, error, isLoading, refetch } = useAdminDashboard();
+  // Luồng lấy dữ liệu 2: truy vấn danh sách thiết bị CMDB để tổng hợp phân bổ tài sản theo loại
   const { data: assetData } = useQuery({
     queryKey: ["assets", "report-summary"],
     queryFn: ({ signal }) => getAssets({}, { signal }),
   });
 
+  // Tổng hợp và nhóm số lượng thiết bị theo loại (tổng, đang cấp phát, sẵn sàng trong kho, bảo trì)
   const assetBreakdown = useMemo(() => {
     const groups = new Map();
     for (const asset of assetData?.assets ?? []) {
@@ -69,6 +89,7 @@ function AdminReportsPage() {
     return Array.from(groups.values());
   }, [assetData?.assets]);
 
+  // Ghép dữ liệu số ticket tạo mới và đã hoàn thành theo từng ngày trong 7 ngày gần nhất
   const weekly = (data?.charts.ticketsCreatedLast7Days ?? []).map(
     (item, index) => ({
       day: item.name,
@@ -76,9 +97,13 @@ function AdminReportsPage() {
       resolved: data?.charts.ticketsResolvedLast7Days?.[index]?.value ?? 0,
     }),
   );
+  // Dữ liệu cơ cấu danh mục và hiệu suất kỹ thuật viên từ payload dashboard
   const categories = data?.charts.ticketsByCategory ?? [];
   const technicians = data?.charts.technicianPerformance ?? [];
 
+  /**
+   * Xuất bảng thống kê đối chiếu ticket tạo mới và hoàn thành trong 7 ngày ra file CSV (UTF-8 BOM).
+   */
   function exportReport() {
     const rows = [
       "Ngày,Ticket tạo mới,Ticket hoàn thành",
@@ -99,6 +124,7 @@ function AdminReportsPage() {
 
   return (
     <section>
+      {/* Phần tiêu đề trang và nút xuất báo cáo CSV */}
       <WorkspacePageHeader
         eyebrow="Báo cáo & Phân tích vận hành"
         title="Báo cáo hiệu suất & Tài sản CMDB"
@@ -110,15 +136,19 @@ function AdminReportsPage() {
           </Button>
         }
       />
+      {/* Hiển thị skeleton trong khi chờ dữ liệu tổng hợp */}
       {isLoading ? <DashboardSkeleton /> : null}
+      {/* Hiển thị giao diện báo lỗi và nút thử lại nếu truy vấn thất bại */}
       {!isLoading && error ? (
         <DashboardErrorState
           message={getDashboardErrorMessage(error)}
           onRetry={refetch}
         />
       ) : null}
+      {/* Hiển thị nội dung báo cáo khi đã tải xong dữ liệu */}
       {!isLoading && data ? (
         <>
+          {/* Hàng thẻ thống kê 4 chỉ số vận hành ticket chính */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <WorkspaceStatCard
               icon={Ticket}
@@ -149,13 +179,16 @@ function AdminReportsPage() {
             />
           </div>
 
+          {/* Khu vực biểu đồ: lưu lượng 7 ngày (trái) và tỷ trọng danh mục sự cố (phải) */}
           <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(20rem,.6fr)]">
             <ChartCard weekly={weekly} />
             <CategoryCard categories={categories} />
           </div>
 
           {/* Real CMDB Asset Inventory & Technician Performance Grid */}
+          {/* Lưới 2 bảng chi tiết: Phân bổ tài sản thiết bị CMDB và Hiệu suất xử lý kỹ thuật viên */}
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
+            {/* Bảng thống kê phân bổ thiết bị CNTT từ CMDB */}
             <section className="overflow-hidden rounded-xl border border-brand-bone bg-white p-5 shadow-xs">
               <div className="mb-4 flex items-center justify-between">
                 <div>
@@ -210,6 +243,7 @@ function AdminReportsPage() {
               </div>
             </section>
 
+            {/* Bảng thống kê số ticket đang xử lý và đã hoàn thành theo từng kỹ thuật viên */}
             <section className="overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs">
               <div className="border-b border-brand-bone px-5 py-4">
                 <h2 className="font-display text-sm font-bold text-brand-ink">
@@ -256,6 +290,9 @@ function AdminReportsPage() {
   );
 }
 
+/**
+ * Component con hiển thị biểu đồ cột đôi đối chiếu ticket phát sinh mới và đã giải quyết trong 7 ngày.
+ */
 function ChartCard({ weekly }) {
   return (
     <section className="min-w-0 rounded-xl border border-brand-bone bg-white p-5 shadow-xs">
@@ -304,6 +341,9 @@ function ChartCard({ weekly }) {
   );
 }
 
+/**
+ * Component con hiển thị biểu đồ tròn Donut và chú giải cơ cấu danh mục sự cố.
+ */
 function CategoryCard({ categories }) {
   return (
     <section className="min-w-0 rounded-xl border border-brand-bone bg-white p-5 shadow-xs">
@@ -334,6 +374,7 @@ function CategoryCard({ categories }) {
           </PieChart>
         </ResponsiveContainer>
       </div>
+      {/* Chú giải màu và số lượng cụ thể cho từng danh mục */}
       <ul className="grid grid-cols-2 gap-2">
         {categories.map((item, index) => (
           <li

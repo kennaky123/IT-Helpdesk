@@ -1,3 +1,13 @@
+/**
+ * @file TicketDetailPage.jsx
+ * @description Trang Chi tiết Ticket theo mô hình bàn làm việc 3 cột (Master-Detail Workspace) dùng chung cho User, Technician và Admin.
+ * @role User / Technician / Admin (hiển thị hành động và thông tin nội bộ dựa trên `getTicketPermissions`).
+ * @flow
+ * 1. Đọc `ticketId` từ URL (`useParams`) và `user` từ `useAuth()`; tải song song chi tiết/bình luận/lịch sử ticket (`useTicketDetail`) và danh sách 15 ticket gần đây cho sidebar (`useTicketList`).
+ * 2. Xác định đường dẫn quay lại hàng đợi (`getBackPath`) và tập quyền thao tác (`getTicketPermissions`).
+ * 3. Bố cục 3 cột trên desktop: Cột trái (hàng đợi ticket rút gọn chuyển nhanh), Cột giữa (mô tả, tệp đính kèm, dòng thời gian lịch sử, luồng bình luận), Cột phải (bảng thao tác nghiệp vụ & metadata).
+ * 4. Xử lý các mutation phân công/đổi trạng thái/cập nhật giải pháp, gửi bình luận công khai hoặc ghi chú nội bộ, và modal xác nhận đóng/hủy ticket.
+ */
 import { ArrowLeft, LoaderCircle } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useMemo, useState } from "react";
@@ -33,11 +43,16 @@ import {
 } from "../../services/ticketService.js";
 import { getTicketPermissions } from "../../utils/ticketPermissions.js";
 
+// Đường dẫn quay lại danh sách ticket mặc định cho vai trò User và Admin
 const BACK_PATHS = {
   user: "/user/tickets",
   admin: "/admin/tickets",
 };
 
+/**
+ * Xác định đường dẫn quay lại hàng đợi tương ứng theo vai trò người dùng và trạng thái ticket.
+ * Riêng kỹ thuật viên được điều hướng về đúng tab xử lý: đang xử lý, lịch sử, đã phân công hoặc tất cả.
+ */
 function getBackPath(role, status) {
   if (role !== "technician") {
     return BACK_PATHS[role] ?? "/";
@@ -58,16 +73,26 @@ function getBackPath(role, status) {
   return "/technician/tickets/all";
 }
 
+/**
+ * Tạo URL chi tiết ticket tương ứng theo vai trò để điều hướng khi chọn ticket từ cột hàng đợi bên trái.
+ */
 function getTicketDetailPath(role, id) {
   if (role === "admin") return `/admin/tickets/${id}`;
   if (role === "technician") return `/technician/tickets/${id}`;
   return `/user/tickets/${id}`;
 }
 
+/**
+ * Component trang Chi tiết Ticket 3 cột.
+ * Điều phối tải dữ liệu chi tiết, danh sách hàng đợi sidebar, phân quyền thao tác và các mutation nghiệp vụ ticket.
+ */
 function TicketDetailPage() {
+  // Lấy ID ticket từ tham số đường dẫn URL và thông tin user hiện tại từ AuthContext
   const { ticketId } = useParams();
   const { user } = useAuth();
+  // Hook React Query tải chi tiết ticket, bình luận và lịch sử (auto refetch 15s)
   const ticketState = useTicketDetail(ticketId);
+  // Tham số truy vấn cố định (memoized) để lấy tối đa 15 ticket gần đây cho cột hàng đợi bên trái
   const sidebarQueueQuery = useMemo(
     () => ({
       search: "",
@@ -81,13 +106,17 @@ function TicketDetailPage() {
     }),
     [],
   );
+  // Tải danh sách ticket hiển thị ở sidebar cột trái
   const queueList = useTicketList(sidebarQueueQuery);
   const queueTickets = queueList.data?.tickets ?? [];
 
+  // State điều khiển modal xác nhận đóng/hủy ticket ("close" | "cancel" | null), trạng thái gửi và lỗi
   const [confirmationAction, setConfirmationAction] = useState(null);
   const [confirmationSubmitting, setConfirmationSubmitting] = useState(false);
   const [confirmationError, setConfirmationError] = useState(null);
+  // Đường dẫn quay lại hàng đợi theo vai trò và trạng thái ticket hiện tại
   const backPath = getBackPath(user?.role, ticketState.ticket?.status);
+  // Tính toán quyền thao tác trên ticket (tiếp nhận, phân công, đổi trạng thái, ghi chú nội bộ, đóng/hủy...)
   const permissions = useMemo(
     () =>
       ticketState.ticket
@@ -96,6 +125,7 @@ function TicketDetailPage() {
     [ticketState.ticket, user],
   );
 
+  // Đóng modal xác nhận đóng/hủy nếu không trong quá trình gửi API
   const closeConfirmation = useCallback(() => {
     if (!confirmationSubmitting) {
       setConfirmationAction(null);
@@ -103,6 +133,10 @@ function TicketDetailPage() {
     }
   }, [confirmationSubmitting]);
 
+  /**
+   * Thực thi các mutation nghiệp vụ trên ticket (phân công, đổi trạng thái, cập nhật giải pháp),
+   * hiển thị toast thông báo thành công và refetch lại cả chi tiết ticket lẫn danh sách hàng đợi sidebar.
+   */
   async function runTicketMutation(request) {
     const result = await request;
     toast.success(result.message);
@@ -111,6 +145,9 @@ function TicketDetailPage() {
     return result;
   }
 
+  /**
+   * Event handler gửi bình luận trao đổi công khai hoặc ghi chú nội bộ (dành cho kỹ thuật viên).
+   */
   async function handleComment(content, isInternal) {
     const result = await (isInternal
       ? postInternalNote(ticketId, content)
@@ -119,6 +156,10 @@ function TicketDetailPage() {
     ticketState.refetch();
   }
 
+  /**
+   * Event handler xác nhận đóng hoặc hủy ticket từ `ConfirmActionModal`.
+   * Nếu gặp mã lỗi 400/404/409 (trạng thái ticket đã thay đổi), tự động refetch lại dữ liệu mới nhất.
+   */
   const handleConfirmation = useCallback(
     async (note) => {
       setConfirmationSubmitting(true);
@@ -146,6 +187,7 @@ function TicketDetailPage() {
     [confirmationAction, queueList, ticketId, ticketState],
   );
 
+  // Biến dẫn xuất xác định ticket đang hiển thị, trạng thái loading lần đầu và trạng thái lỗi tải dữ liệu
   const ticket = ticketState.ticket;
   const activeTicketId = ticket?._id ?? ticketId;
   const isInitialLoading = ticketState.isTicketLoading && !ticket;
@@ -157,6 +199,7 @@ function TicketDetailPage() {
       className="flex min-h-[calc(100vh-3.5rem)] flex-col border-t border-brand-bone bg-white lg:h-[calc(100vh-3.5rem)] lg:flex-row lg:overflow-hidden"
     >
       {/* Left Column: Compact Ticket Queue List (Fixed, no fade-in animation) */}
+      {/* Cột 1 (Trái): Hàng đợi 15 ticket gần đây cố định giúp chuyển nhanh giữa các ticket và quay lại danh sách theo role */}
       <aside className="hidden w-80 shrink-0 flex-col border-r border-brand-bone bg-white lg:flex">
         <div className="flex items-center justify-between border-b border-brand-bone bg-brand-mist/50 p-3.5">
           <Link
@@ -208,6 +251,7 @@ function TicketDetailPage() {
         </div>
       </aside>
 
+      {/* Kiểm tra trạng thái tải dữ liệu: Skeleton khi tải lần đầu, ErrorState nếu lỗi/không tìm thấy, ngược lại hiển thị Cột giữa & Cột phải */}
       {isInitialLoading ? (
         <motion.div
           key={`loading-${ticketId}`}
@@ -235,6 +279,7 @@ function TicketDetailPage() {
       ) : (
         <>
           {/* Center Column: Ticket Conversation & Activity Stream */}
+          {/* Cột 2 (Giữa): Tiêu đề ticket, mô tả sự cố, tệp đính kèm, dòng thời gian lịch sử và luồng bình luận/ghi chú nội bộ */}
           <motion.div
             key={`center-${ticket._id}`}
             initial={{ opacity: 0, y: 8 }}
@@ -282,6 +327,7 @@ function TicketDetailPage() {
           </motion.div>
 
           {/* Right Column: Context, Requester Profile, Asset Telemetry & Workflow Actions */}
+          {/* Cột 3 (Phải): Bảng thao tác nghiệp vụ (phân công, chuyển trạng thái, giải pháp, đóng/hủy) và thông tin metadata ticket */}
           <motion.aside
             key={`right-${ticket._id}`}
             initial={{ opacity: 0, y: 8 }}
@@ -329,6 +375,7 @@ function TicketDetailPage() {
         </>
       )}
 
+      {/* Modal xác nhận thao tác đóng (close) hoặc hủy (cancel) ticket kèm ghi chú tùy chọn */}
       {confirmationAction ? (
         <ConfirmActionModal
           key={confirmationAction}

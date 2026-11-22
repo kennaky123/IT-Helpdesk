@@ -1,3 +1,12 @@
+/**
+ * Trang Quản trị Nhân viên Kỹ thuật (IT Agents).
+ *
+ * Vai trò trong hệ thống IT Helpdesk:
+ * - Giúp Admin quản lý hồ sơ đội ngũ kỹ sư hỗ trợ (L1/L2/L3), chuyên môn phụ trách
+ *   và theo dõi tải xử lý ticket (số ticket đang nhận, đã hoàn thành, điểm CSAT, tỷ lệ hoàn thành).
+ * - Hỗ trợ tìm kiếm, lọc theo trạng thái làm việc (Sẵn sàng / Đang bận / Ngoại tuyến),
+ *   thêm/sửa/xóa kỹ thuật viên và chuyển đổi nhanh trạng thái tiếp nhận ticket.
+ */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CircleGauge,
@@ -31,6 +40,7 @@ import {
   normalizeSearch,
 } from "../../utils/adminUserFormatters.js";
 
+// Cấu hình nhãn hiển thị và lớp CSS tương ứng cho từng trạng thái hoạt động của kỹ thuật viên
 const STATUS = {
   online: {
     label: "Sẵn sàng",
@@ -46,6 +56,10 @@ const STATUS = {
   },
 };
 
+/**
+ * Menu thả xuống chứa các thao tác chỉnh sửa và xóa trên từng thẻ kỹ thuật viên.
+ * Tự động đóng khi người dùng click ra bên ngoài thông qua hook useClickOutside.
+ */
 function TechnicianActionMenu({
   technician,
   open,
@@ -54,6 +68,7 @@ function TechnicianActionMenu({
   onEdit,
   onDelete,
 }) {
+  // Ref tham chiếu vùng container menu để phát hiện click bên ngoài
   const menuRef = useRef(null);
   useClickOutside(menuRef, onClose, open);
 
@@ -98,26 +113,42 @@ function TechnicianActionMenu({
   );
 }
 
+/**
+ * Component chính quản lý danh sách và thao tác với đội ngũ kỹ thuật viên IT.
+ */
 function AdminTechniciansPage() {
+  // Client React Query phục vụ đồng bộ cache với các phân hệ liên quan
   const queryClient = useQueryClient();
+  // Từ khóa tìm kiếm kỹ thuật viên (tên, email, chuyên môn)
   const [search, setSearch] = useState("");
+  // Bộ lọc trạng thái hoạt động ("", "online", "busy", "offline")
   const [status, setStatus] = useState("");
+  // Đối tượng kỹ thuật viên đang được chọn chỉnh sửa (null nếu đang tạo mới)
   const [formTechnician, setFormTechnician] = useState(null);
+  // Cờ đóng/mở modal form thêm/sửa kỹ thuật viên
   const [formOpen, setFormOpen] = useState(false);
+  // Kỹ thuật viên đang chờ xác nhận xóa trong modal
   const [deleteTechnician, setDeleteTechnician] = useState(null);
+  // ID kỹ thuật viên đang mở menu thao tác dropdown
   const [openMenuId, setOpenMenuId] = useState(null);
 
+  // Luồng lấy dữ liệu: tải danh sách kỹ thuật viên kèm chỉ số hiệu suất từ API quản trị
   const { data: technicians = [], error: listError } = useQuery({
     queryKey: ["admin", "technicians"],
     queryFn: ({ signal }) => getAdminTechnicians({ signal }),
   });
 
+  // Hiển thị thông báo toast nếu truy vấn danh sách kỹ thuật viên gặp lỗi
   useEffect(() => {
     if (listError) {
       toast.error(getAdminErrorMessage(listError));
     }
   }, [listError]);
 
+  /**
+   * Làm mới toàn bộ các cache React Query phụ thuộc danh sách kỹ thuật viên:
+   * danh sách kỹ thuật viên, người dùng, bộ lọc ticket và số liệu dashboard.
+   */
   function invalidateTechnicians() {
     queryClient.invalidateQueries({ queryKey: ["admin", "technicians"] });
     queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
@@ -126,6 +157,7 @@ function AdminTechniciansPage() {
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
   }
 
+  // Mutation thêm mới hoặc cập nhật thông tin kỹ thuật viên
   const saveMutation = useMutation({
     mutationFn: ({ id, values }) =>
       id ? updateAdminTechnician(id, values) : createAdminTechnician(values),
@@ -143,6 +175,7 @@ function AdminTechniciansPage() {
     },
   });
 
+  // Mutation xóa kỹ thuật viên khỏi hệ thống và đóng modal xác nhận
   const deleteMutation = useMutation({
     mutationFn: (id) => deleteAdminTechnician(id),
     onSuccess: () => {
@@ -155,6 +188,7 @@ function AdminTechniciansPage() {
     },
   });
 
+  // Mutation bật/tắt trạng thái sẵn sàng (online <-> offline) cho kỹ thuật viên
   const availabilityMutation = useMutation({
     mutationFn: ({ technician, nextStatus }) =>
       updateAdminTechnician(technician.id, { ...technician, status: nextStatus }),
@@ -171,6 +205,7 @@ function AdminTechniciansPage() {
     },
   });
 
+  // Lọc danh sách kỹ thuật viên phía client theo từ khóa (tên, email, chuyên môn) và trạng thái
   const filtered = useMemo(
     () =>
       technicians.filter(
@@ -184,40 +219,58 @@ function AdminTechniciansPage() {
     [search, status, technicians],
   );
 
+  // Tổng số ticket đã hoàn thành tích lũy của toàn bộ đội ngũ kỹ thuật viên
   const createdTicketCount = technicians.reduce(
     (sum, item) => sum + item.completed,
     0,
   );
 
+  /**
+   * Mở modal ở chế độ thêm mới kỹ thuật viên.
+   */
   function openCreateForm() {
     setFormTechnician(null);
     setFormOpen(true);
   }
 
+  /**
+   * Đóng menu thao tác đang mở và mở modal chỉnh sửa kỹ thuật viên được chọn.
+   */
   function openEditForm(technician) {
     setOpenMenuId(null);
     setFormTechnician(technician);
     setFormOpen(true);
   }
 
+  /**
+   * Gọi saveMutation ở dạng promise (mutateAsync) để modal chờ kết quả lưu trước khi đóng.
+   */
   function saveTechnician(values) {
     return saveMutation.mutateAsync({ id: formTechnician?.id, values });
   }
 
+  /**
+   * Thực thi xóa kỹ thuật viên sau khi người dùng xác nhận trên ConfirmActionModal.
+   */
   function confirmDelete() {
     if (!deleteTechnician) return;
     deleteMutation.mutate(deleteTechnician.id);
   }
 
+  /**
+   * Chuyển đổi qua lại giữa trạng thái "offline" và "online" để điều phối nhận ticket.
+   */
   function toggleAvailability(technician) {
     const nextStatus = technician.status === "offline" ? "online" : "offline";
     availabilityMutation.mutate({ technician, nextStatus });
   }
 
+  // Trạng thái đang xử lý xóa để hiển thị loading trên nút xác nhận
   const deleteSubmitting = deleteMutation.isPending;
 
   return (
     <section>
+      {/* Tiêu đề trang và nút thêm mới kỹ thuật viên */}
       <WorkspacePageHeader
         eyebrow="Quản trị đội ngũ kỹ thuật"
         title="Nhân viên kỹ thuật (IT Agents)"
@@ -230,6 +283,7 @@ function AdminTechniciansPage() {
         }
       />
 
+      {/* Lưới 4 thẻ KPI tổng quan về nhân sự và khối lượng xử lý ticket */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <WorkspaceStatCard
           icon={Users}
@@ -260,6 +314,7 @@ function AdminTechniciansPage() {
         />
       </div>
 
+      {/* Thanh tìm kiếm theo từ khóa và bộ lọc trạng thái làm việc */}
       <div className="mt-6 rounded-xl border border-brand-bone bg-white p-3.5 shadow-xs">
         <div className="grid gap-3 sm:grid-cols-[1fr_14rem]">
           <label className="relative">
@@ -284,6 +339,7 @@ function AdminTechniciansPage() {
         </div>
       </div>
 
+      {/* Lưới thẻ thông tin từng kỹ thuật viên hoặc thông báo khi không tìm thấy */}
       {filtered.length ? (
         <div className="mt-4 grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
           {filtered.map((item) => {
@@ -383,6 +439,7 @@ function AdminTechniciansPage() {
         </div>
       )}
 
+      {/* Modal thêm mới hoặc chỉnh sửa thông tin kỹ thuật viên */}
       {formOpen ? (
         <TechnicianFormModal
           key={formTechnician?.id ?? "new"}
@@ -393,6 +450,7 @@ function AdminTechniciansPage() {
         />
       ) : null}
 
+      {/* Modal xác nhận xóa kỹ thuật viên khỏi đội hỗ trợ */}
       {deleteTechnician ? (
         <ConfirmActionModal
           title="Xóa kỹ thuật viên?"

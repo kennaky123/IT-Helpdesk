@@ -1,3 +1,17 @@
+/**
+ * @fileoverview Modal cấp phát (gán) bản quyền phần mềm cho nhân viên (Software FinOps).
+ *
+ * Mục đích & vai trò:
+ * - Thuộc phân hệ Software FinOps, cho phép Admin/Kỹ thuật viên gán một seat bản quyền
+ *   cho nhân viên đang thực tế sử dụng thiết bị (laptop/PC) của công ty.
+ * - Tự động đồng bộ danh sách nhân viên dựa trên các tài sản phần cứng đang ở trạng thái `in_use`;
+ *   nếu nhân viên bị thu hồi máy sẽ tự động không còn đủ điều kiện nhận/giữ bản quyền.
+ *
+ * Props:
+ * - `license` {Object}: Đối tượng gói bản quyền phần mềm hiện tại (`_id`, `name`, `vendor`, `category`, `totalSeats`, `availableSeats`, `assignedUsers`).
+ * - `onClose` {Function}: Callback đóng modal.
+ * - `onAllocated` {Function}: Callback chạy sau khi cấp phát thành công, nhận dữ liệu bản quyền đã cập nhật.
+ */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Laptop, ShieldCheck, Users, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -6,17 +20,23 @@ import { getAssets } from "../../services/assetService.js";
 import { allocateLicense } from "../../services/softwareService.js";
 import { Badge } from "../ui/badge.jsx";
 
+/**
+ * Component modal cấp phát bản quyền phần mềm cho nhân viên có thiết bị công ty.
+ */
 function AllocateLicenseModal({ license, onClose, onAllocated }) {
   const queryClient = useQueryClient();
+  // State lưu ID nhân viên được chọn, ghi chú cấp phát và cờ trạng thái đang gửi API
   const [selectedUserId, setSelectedUserId] = useState("");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Truy vấn danh sách tài sản phần cứng đang sử dụng (in_use) để xác định nhân viên đang giữ máy
   const { data: inUseAssetData, isLoading: isLoadingEmployees } = useQuery({
     queryKey: ["assets", "list", { status: "in_use" }],
     queryFn: ({ signal }) => getAssets({ status: "in_use" }, { signal }),
   });
 
+  // Gom nhóm thiết bị đang sử dụng theo từng nhân viên và sắp xếp theo tên tiếng Việt
   const activeMachineEmployees = useMemo(() => {
     const byUser = new Map();
     for (const asset of inUseAssetData?.assets ?? []) {
@@ -39,16 +59,19 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
     );
   }, [inUseAssetData?.assets]);
 
+  // Tập hợp ID các nhân viên đã được cấp bản quyền này trước đó (hỗ trợ cả object populated và ID thô)
   const assignedUserIds = new Set(
     (license?.assignedUsers || []).map((entry) =>
       typeof entry.user === "object" ? entry.user?._id : entry.user,
     ),
   );
 
+  // Lọc danh sách nhân viên đang giữ máy công ty nhưng chưa được cấp gói bản quyền này
   const availableEmployees = activeMachineEmployees.filter(
     (emp) => !assignedUserIds.has(emp._id),
   );
 
+  // Xử lý submit form cấp phát seat bản quyền cho nhân viên được chọn
   async function handleSubmit(e) {
     e.preventDefault();
     if (!selectedUserId) {
@@ -62,6 +85,7 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
         userId: selectedUserId,
         note: note.trim() || undefined,
       });
+      // Làm mới cache danh sách bản quyền để đồng bộ lại số seat đã cấp và còn trống
       queryClient.invalidateQueries({ queryKey: ["software"] });
       toast.success(`Đã cấp phát bản quyền ${license.name} thành công!`);
       onAllocated?.(updated);
@@ -73,6 +97,7 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
     }
   }
 
+  // Tính số lượng seat còn trống để hiển thị trực quan trên thẻ tóm tắt
   const remainingSeats =
     license.availableSeats !== undefined
       ? license.availableSeats
@@ -85,7 +110,9 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
       }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
     >
+      {/* Khung modal chính (tối đa 92vh, tự cuộn phần thân form) */}
       <div className="w-full max-w-xl bg-white rounded-2xl border border-brand-bone shadow-xl overflow-hidden max-h-[92vh] flex flex-col">
+        {/* Phần đầu modal: tiêu đề và nút đóng */}
         <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100 text-brand-violet">
@@ -110,6 +137,7 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
           </button>
         </div>
 
+        {/* Thân form cấp phát bản quyền */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto">
           {/* Software Info Card */}
           <div className="rounded-xl border border-brand-bone bg-brand-mist/60 p-3.5 space-y-1.5 text-xs">
@@ -201,6 +229,7 @@ function AllocateLicenseModal({ license, onClose, onAllocated }) {
             )}
           </div>
 
+          {/* Dropdown chọn nhân viên tiếp nhận bản quyền (lọc trừ những người đã được cấp) */}
           <div>
             <label className="block text-xs font-semibold text-brand-onyx mb-1">
               Chọn nhân viên tiếp nhận bản quyền <span className="text-red-500">*</span>

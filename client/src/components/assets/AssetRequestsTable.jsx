@@ -1,6 +1,20 @@
+/**
+ * Bảng danh sách yêu cầu cấp phát thiết bị IT (Asset Requests) trong module quản lý tài sản.
+ * Hiển thị mã yêu cầu, nhân viên nhận máy, loại thiết bị/ghi chú, kỹ thuật viên phụ trách, trạng thái
+ * và các nút xử lý theo vai trò (Tiếp nhận, Bàn giao máy, Hủy yêu cầu).
+ *
+ * Props:
+ * - requests: Mảng danh sách các yêu cầu cấp phát thiết bị (mặc định []).
+ * - role: Vai trò của người dùng hiện tại ("admin" | "technician" | "user", mặc định "admin").
+ * - currentUserId: ID của người dùng hiện tại để kiểm tra quyền bàn giao đối với kỹ thuật viên.
+ * - onAccept: Callback(req) khi kỹ thuật viên tiếp nhận yêu cầu.
+ * - onComplete: Callback(req) mở modal xuất kho và bàn giao thiết bị cho yêu cầu.
+ * - onCancel: Callback(req) hủy yêu cầu cấp phát.
+ */
 import { CheckCircle2, Clock, PackageCheck, Send, UserCheck, XCircle } from "lucide-react";
 import { formatTicketDateTime } from "../../utils/ticketPermissions.js";
 
+// Cấu hình nhãn, màu chữ/nền badge và chấm màu cho các trạng thái yêu cầu cấp phát
 const REQUEST_STATUS_CONFIG = {
   pending: {
     label: "Chờ Tiếp Nhận",
@@ -24,6 +38,9 @@ const REQUEST_STATUS_CONFIG = {
   },
 };
 
+/**
+ * Component bảng quản lý danh sách yêu cầu cấp phát thiết bị.
+ */
 function AssetRequestsTable({
   requests = [],
   role = "admin",
@@ -54,8 +71,10 @@ function AssetRequestsTable({
             </tr>
           ) : (
             requests.map((req) => {
+              // Tra cứu cấu hình hiển thị trạng thái, mặc định về pending nếu không khớp
               const statusCfg =
                 REQUEST_STATUS_CONFIG[req.status] || REQUEST_STATUS_CONFIG.pending;
+              // Kiểm tra yêu cầu chưa gán KTV hoặc đang được gán cho chính KTV đăng nhập
               const isAssignedToCurrentTech =
                 req.technician?._id === currentUserId || !req.technician;
 
@@ -124,11 +143,13 @@ function AssetRequestsTable({
                           {statusCfg.label}
                         </span>
                       </div>
+                      {/* Hiển thị mã và tên máy đã xuất khi yêu cầu hoàn tất */}
                       {req.status === "completed" && req.asset && (
                         <div className="text-[11px] font-mono text-emerald-700">
                           Máy: {req.asset.assetTag} ({req.asset.name})
                         </div>
                       )}
+                      {/* Hiển thị lý do hủy nếu yêu cầu đã bị hủy */}
                       {req.status === "cancelled" && req.cancelReason && (
                         <div className="text-[11px] text-red-600 truncate max-w-xs">
                           Lý do: {req.cancelReason}

@@ -1,3 +1,12 @@
+/**
+ * Menu thả xuống (Dropdown) của tài khoản người dùng nằm ở góc phải thanh Header.
+ *
+ * Props: Không nhận props (đọc `user` và `logout` từ `useAuth`).
+ *
+ * Vai trò trong UI Layout / Navigation:
+ * - Hiển thị ảnh đại diện (hoặc ký tự viết tắt), tên, nhãn vai trò hiện tại của người dùng.
+ * - Mở menu thao tác nhanh gồm xem thông tin email, chuyển tới trang "Hồ sơ cá nhân" (`/profile`) và "Đăng xuất".
+ */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, LogOut, UserRound } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
@@ -6,7 +15,11 @@ import useAuth from "../../hooks/useAuth.js";
 import useClickOutside from "../../hooks/useClickOutside.js";
 import { getAvatarUrl, getInitials } from "../../utils/adminUserFormatters.js";
 
+/**
+ * Render nút hồ sơ người dùng kèm menu dropdown hỗ trợ click ngoài để đóng và điều hướng bằng phím Escape.
+ */
 function UserDropdown() {
+  // Trạng thái đóng/mở menu dropdown tài khoản.
   const [isOpen, setIsOpen] = useState(false);
   const { logout, user } = useAuth();
   const navigate = useNavigate();
@@ -14,10 +27,13 @@ function UserDropdown() {
   const buttonRef = useRef(null);
   const closeDropdown = useCallback(() => setIsOpen(false), []);
 
+  // Chuẩn hóa URL ảnh đại diện của người dùng (nếu có).
   const avatarUrl = getAvatarUrl(user?.avatar);
 
+  // Tự động đóng menu khi người dùng click ra bên ngoài vùng containerRef.
   useClickOutside(containerRef, closeDropdown, isOpen);
 
+  // Khi dropdown đang mở, lắng nghe phím Escape để đóng menu và trả focus về nút kích hoạt.
   useEffect(() => {
     if (!isOpen) {
       return undefined;
@@ -34,6 +50,7 @@ function UserDropdown() {
     return () => document.removeEventListener("keydown", handleEscape);
   }, [isOpen]);
 
+  // Đóng dropdown, xóa phiên đăng nhập qua AuthContext và chuyển hướng về trang /login (replace history).
   function handleLogout() {
     setIsOpen(false);
     logout();
@@ -86,6 +103,7 @@ function UserDropdown() {
         />
       </button>
 
+      {/* Menu thả xuống hiển thị thông tin tài khoản, liên kết hồ sơ và nút đăng xuất */}
       {isOpen ? (
         <div
           className="absolute top-full right-0 z-50 mt-2 w-60 overflow-hidden rounded-2xl border border-brand-bone bg-white shadow-xl shadow-black/10"

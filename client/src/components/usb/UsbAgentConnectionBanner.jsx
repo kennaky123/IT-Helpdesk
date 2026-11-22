@@ -1,13 +1,32 @@
+/**
+ * @fileoverview Banner hướng dẫn cài đặt & kết nối Windows USB Agent (USB DLP Security).
+ *
+ * Mục đích & vai trò:
+ * - Thuộc phân hệ USB DLP Security, hiển thị thông tin kết nối trạm giám sát đầu cuối
+ *   `ITHelpdeskUSBAgent.exe` lắng nghe sự kiện WMI realtime trên các máy Windows trong mạng LAN.
+ * - Cung cấp nút tải trực tiếp file thực thi Agent `.exe`, nút test giả lập sự kiện cắm USB
+ *   và 3 thẻ sao chép nhanh địa chỉ Server API, URL Web LAN cùng các IP card mạng đang lắng nghe.
+ *
+ * Props:
+ * - `networkInfo` {Object}: Dữ liệu mạng của server (`lanAddresses`, `primaryServerUrl`, `primaryWebUrl`, `serverHostname`).
+ * - `onSimulateEvent` {Function}: Callback gửi một sự kiện giả lập cắm USB để kiểm tra luồng realtime.
+ * - `isSimulating` {boolean}: Cờ trạng thái đang gửi yêu cầu giả lập.
+ */
 import { Copy, Download, Laptop, Network, Sparkles, Terminal } from "lucide-react";
 import { toast } from "react-toastify";
 import { getAgentDownloadUrl } from "../../services/usbService.js";
 import { copyTextToClipboard } from "../../utils/clipboard.js";
 
+/**
+ * Component banner hiển thị hướng dẫn tải Agent và thông số kết nối mạng LAN.
+ */
 function UsbAgentConnectionBanner({ networkInfo, onSimulateEvent, isSimulating }) {
+  // Lấy danh sách card mạng LAN và URL mặc định (fallback về IP nội bộ mẫu nếu server chưa trả về)
   const lanList = networkInfo?.lanAddresses || [];
   const primaryServerUrl = networkInfo?.primaryServerUrl || "http://192.168.1.16:5000";
   const primaryWebUrl = networkInfo?.primaryWebUrl || "http://192.168.1.16:5173";
 
+  // Sao chép URL hoặc IP vào clipboard và thông báo người dùng qua toast
   async function copyToClipboard(text, label) {
     try {
       await copyTextToClipboard(text);
@@ -19,6 +38,7 @@ function UsbAgentConnectionBanner({ networkInfo, onSimulateEvent, isSimulating }
 
   return (
     <div className="bg-white rounded-2xl border border-brand-bone p-5 shadow-xs space-y-4">
+      {/* Phần đầu banner: giới thiệu Windows USB Agent và các nút tải .exe / test giả lập */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex items-start gap-3.5">
           <div className="w-10 h-10 rounded-xl bg-purple-100 text-brand-violet flex items-center justify-center shrink-0 mt-0.5">
@@ -40,6 +60,7 @@ function UsbAgentConnectionBanner({ networkInfo, onSimulateEvent, isSimulating }
           </div>
         </div>
 
+        {/* Nhóm nút thao tác: gửi sự kiện test giả lập và tải bộ cài Agent */}
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
@@ -63,6 +84,7 @@ function UsbAgentConnectionBanner({ networkInfo, onSimulateEvent, isSimulating }
       </div>
 
       {/* Multi-machine LAN Info Cards */}
+      {/* Lưới 3 thẻ hiển thị địa chỉ kết nối LAN giúp cấu hình Agent trên máy trạm thứ 2 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-brand-bone">
         <div className="rounded-xl bg-brand-mist/50 border border-brand-bone p-3 flex items-center justify-between gap-2">
           <div className="min-w-0">

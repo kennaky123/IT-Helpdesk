@@ -1,6 +1,22 @@
+/**
+ * Thẻ hiển thị chỉ số thống kê tổng quan dùng chung trong các trang không gian làm việc (Workspace).
+ *
+ * Props:
+ * - icon: Component icon từ lucide-react hiển thị trong khung bo tròn góc trên bên phải.
+ * - label: Nhãn tên của chỉ số thống kê.
+ * - value: Giá trị số liệu chính đã định dạng để hiển thị nổi bật.
+ * - description: Dòng chú thích bổ sung bên dưới giá trị.
+ * - tone: Tông màu chủ đạo cho nền và icon ("blue" | "emerald" | "amber" | "violet" | "red"), mặc định "blue".
+ *
+ * Vai trò trong UI Layout:
+ * - Cung cấp thẻ KPI đồng nhất trên các trang quản lý tài sản, phần mềm, giám sát USB...
+ */
 import { motion } from "motion/react";
 import { Card } from "../ui/card.jsx";
 
+/**
+ * Render thẻ thống kê có hiệu ứng xuất hiện từ dưới lên và nhích nhẹ khi di chuột qua.
+ */
 function WorkspaceStatCard({
   icon: Icon,
   label,
@@ -8,6 +24,7 @@ function WorkspaceStatCard({
   description,
   tone = "blue",
 }) {
+  // Bảng ánh xạ tông màu sang cặp lớp CSS nền nhạt và màu chữ cho khung icon.
   const tones = {
     blue: "bg-blue-50 text-brand-blue",
     emerald: "bg-emerald-50 text-emerald-600",

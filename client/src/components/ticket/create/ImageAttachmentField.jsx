@@ -1,6 +1,21 @@
+/**
+ * ImageAttachmentField.jsx
+ *
+ * Chức năng: Cung cấp trường chọn/kéo-thả ảnh đính kèm và lưới xem trước (preview) ảnh đã chọn.
+ * Props:
+ * - `attachments` (Array): Danh sách object ảnh `{ id, file, previewUrl }` đang gắn vào form.
+ * - `disabled` (boolean): Vô hiệu hóa chọn/kéo-thả/xóa ảnh khi form đang gửi lên server.
+ * - `error` (string): Thông báo lỗi kiểm tra tệp ảnh (sai định dạng, vượt dung lượng, vượt số lượng, trùng ảnh).
+ * - `maxFiles` (number): Số lượng ảnh tối đa được phép đính kèm cho mỗi ticket.
+ * - `maxFileSizeMb` (number): Dung lượng tối đa (MB) cho từng ảnh.
+ * - `onFilesSelected` (function): Callback nhận mảng `File` sau khi người dùng chọn hoặc thả ảnh.
+ * - `onRemove` (function): Callback xóa ảnh khỏi danh sách theo `attachment.id`.
+ * Vai trò: Đóng vai trò giao diện upload và quản lý preview ảnh trong luồng tạo mới ticket.
+ */
 import { useId, useState } from "react";
 import { ImagePlus, Trash2, UploadCloud } from "lucide-react";
 
+// Helper định dạng dung lượng file từ byte sang KB (tối thiểu 1 KB) hoặc MB để hiển thị dưới mỗi ảnh preview
 function formatFileSize(sizeBytes) {
   if (sizeBytes < 1024 * 1024) {
     return `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
@@ -9,6 +24,7 @@ function formatFileSize(sizeBytes) {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Component trường đính kèm hình ảnh hỗ trợ click chọn file, kéo-thả (drag & drop) và xem trước thumbnail
 function ImageAttachmentField({
   attachments,
   disabled,
@@ -18,16 +34,20 @@ function ImageAttachmentField({
   onFilesSelected,
   onRemove,
 }) {
+  // Tạo ID duy nhất cho input file, mô tả định dạng và thông báo lỗi để đảm bảo accessibility
   const inputId = useId();
   const descriptionId = `${inputId}-description`;
   const errorId = `${inputId}-error`;
+  // State theo dõi trạng thái con trỏ đang kéo file vào vùng dropzone để đổi màu viền phản hồi
   const [isDragging, setIsDragging] = useState(false);
 
+  // Xử lý sự kiện chọn tệp từ hộp thoại duyệt file; reset value để cho phép chọn lại cùng file nếu vừa xóa
   function handleFileInput(event) {
     onFilesSelected(Array.from(event.target.files ?? []));
     event.target.value = "";
   }
 
+  // Ngăn trình duyệt mở ảnh trực tiếp và bật trạng thái highlight vùng thả khi đang kéo file vào
   function handleDragOver(event) {
     event.preventDefault();
 
@@ -36,6 +56,7 @@ function ImageAttachmentField({
     }
   }
 
+  // Xử lý khi người dùng thả file vào vùng dropzone: tắt highlight và chuyển danh sách file lên component cha
   function handleDrop(event) {
     event.preventDefault();
     setIsDragging(false);
@@ -47,6 +68,7 @@ function ImageAttachmentField({
 
   return (
     <div>
+      {/* Nhãn trường và bộ đếm số lượng ảnh đã chọn trên giới hạn tối đa */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="text-sm font-semibold text-slate-800" htmlFor={inputId}>
           Hình ảnh đính kèm
@@ -57,6 +79,7 @@ function ImageAttachmentField({
         </span>
       </div>
 
+      {/* Input file ẩn (sr-only), tự khóa khi đang submit hoặc đã đủ số lượng ảnh tối đa */}
       <input
         id={inputId}
         type="file"
@@ -69,6 +92,7 @@ function ImageAttachmentField({
         onChange={handleFileInput}
       />
 
+      {/* Vùng label đóng vai trò dropzone kéo-thả hoặc click để mở hộp thoại chọn ảnh */}
       <label
         htmlFor={inputId}
         onDragEnter={handleDragOver}
@@ -99,12 +123,14 @@ function ImageAttachmentField({
         </span>
       </label>
 
+      {/* Thông báo lỗi kiểm tra tệp ảnh (định dạng, dung lượng, trùng lặp hoặc vượt giới hạn) */}
       {error ? (
         <p id={errorId} className="mt-2 text-sm text-red-700" role="alert">
           {error}
         </p>
       ) : null}
 
+      {/* Lưới hiển thị các ảnh xem trước (preview) kèm tên file, dung lượng và nút xóa từng ảnh */}
       {attachments.length > 0 ? (
         <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {attachments.map((attachment) => (

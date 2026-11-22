@@ -1,3 +1,21 @@
+/**
+ * @fileoverview Bảng quản lý danh sách thiết bị USB và chính sách bảo mật (USB DLP Security).
+ *
+ * Mục đích & vai trò:
+ * - Thuộc phân hệ USB DLP Security, hiển thị toàn bộ thiết bị USB từng kết nối vào máy trạm
+ *   nhân viên: tên thiết bị, hãng, serial, hardware ID, phân loại & ký tự ổ đĩa, số lần cắm.
+ * - Hiển thị nhân viên chủ sở hữu máy trạm (ưu tiên `assignedUser` hoặc `hostOwner` kèm mã tài sản,
+ *   fallback sang hostname/OS user nếu máy chưa gán tài sản), trạng thái cắm/rút realtime,
+ *   trạng thái bảo mật (Whitelist / Chưa xác minh / Blacklist) và các nút Duyệt / Chặn / Sửa chính sách / Xóa.
+ *
+ * Props:
+ * - `devices` {Array}: Danh sách thiết bị USB đã lọc.
+ * - `role` {string}: Vai trò người dùng hiện tại (`"admin"` mới thấy nút Xóa).
+ * - `onQuickApprove` {Function}: Callback duyệt nhanh thiết bị vào Whitelist.
+ * - `onQuickBlock` {Function}: Callback chặn nhanh thiết bị vào Blacklist.
+ * - `onEditPolicy` {Function}: Callback mở modal cấu hình chính sách chi tiết & gán nhân viên.
+ * - `onDelete` {Function}: Callback xóa bản ghi thiết bị USB.
+ */
 import {
   Ban,
   CheckCircle2,
@@ -12,6 +30,7 @@ import {
 } from "lucide-react";
 import { formatTicketDateTime } from "../../utils/ticketPermissions.js";
 
+// Cấu hình nhãn, màu badge và chấm màu cho trạng thái chính sách bảo mật của USB
 const STATUS_CONFIG = {
   trusted: {
     label: "Đã Phê Duyệt (Whitelist)",
@@ -30,6 +49,7 @@ const STATUS_CONFIG = {
   },
 };
 
+// Cấu hình nhãn hiển thị theo phân loại thiết bị ngoại vi USB từ Windows Agent
 const DEVICE_TYPE_LABELS = {
   storage: {
     label: "USB Lưu Trữ",
@@ -53,6 +73,9 @@ const DEVICE_TYPE_LABELS = {
   },
 };
 
+/**
+ * Component bảng danh sách thiết bị USB được giám sát kèm thao tác kiểm duyệt DLP.
+ */
 function UsbDevicesTable({
   devices = [],
   role = "admin",
@@ -83,6 +106,7 @@ function UsbDevicesTable({
             </tr>
           ) : (
             devices.map((device) => {
+              // Tra cứu cấu hình hiển thị chính sách bảo mật, phân loại USB và máy host kết nối cuối
               const statusCfg = STATUS_CONFIG[device.status] || STATUS_CONFIG.unverified;
               const typeCfg = DEVICE_TYPE_LABELS[device.deviceType] || DEVICE_TYPE_LABELS.other_usb;
               const host = device.lastHost || {};
@@ -152,8 +176,10 @@ function UsbDevicesTable({
                   </td>
 
                   {/* Employee Machine Info */}
+                  {/* Luồng hiển thị nhân viên chủ sở hữu: ưu tiên assignedUser hoặc hostOwner kèm mã tài sản; fallback sang hostname/OS user */}
                   <td className="py-3.5 px-4">
                     {(() => {
+                      // Ưu tiên nhân viên được gán trực tiếp cho USB, sau đó tới chủ sở hữu máy trạm trong bảng Asset
                       const owner = device.assignedUser || device.hostOwner;
                       if (owner) {
                         return (
@@ -184,6 +210,7 @@ function UsbDevicesTable({
                         );
                       }
 
+                      // Fallback khi USB chưa gán chủ sở hữu và máy trạm chưa khớp với tài sản công ty nào
                       return (
                         <div className="space-y-1 text-xs">
                           <div className="font-bold text-brand-onyx flex items-center gap-1.5">

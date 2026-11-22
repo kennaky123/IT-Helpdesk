@@ -1,14 +1,39 @@
+/**
+ * @file TicketHistoryTimeline.jsx
+ * @description Component hiển thị dòng thời gian nhật ký thay đổi (Audit Trail) của ticket.
+ *
+ * Props của `TicketHistoryTimeline`:
+ * - `history` {Array<Object> | undefined}: Danh sách các sự kiện lịch sử gồm phân công KTV (`type === "assignment"`)
+ *   và chuyển đổi trạng thái SLA, sắp xếp theo dòng thời gian.
+ * - `error` {string | null}: Thông báo lỗi nếu tải dữ liệu lịch sử thất bại.
+ * - `loading` {boolean}: Cờ hiển thị trạng thái skeleton khi đang tải lịch sử.
+ * - `onRetry` {Function}: Callback tải lại dữ liệu lịch sử khi xảy ra lỗi.
+ *
+ * Vai trò: Giúp người dùng và đội ngũ IT theo dõi minh bạch toàn bộ lịch sử điều phối/bàn giao KTV
+ * cũng như các mốc chuyển trạng thái xử lý SLA của ticket kèm người thực hiện và thời gian xảy ra.
+ */
 import { ArrowRight, Clock3, RefreshCw, UserRoundCheck } from "lucide-react";
 import {
   formatTicketDateTime,
   getTicketStatusLabel,
 } from "../../../utils/ticketPermissions.js";
 
+/**
+ * Lấy tên hiển thị của người thực hiện hoặc trả về nhãn mặc định nếu dữ liệu trống.
+ * @param {{ fullName?: string } | null | undefined} person
+ * @param {string} fallback
+ * @returns {string}
+ */
 function getPersonName(person, fallback = "Hệ thống") {
   return person?.fullName ?? fallback;
 }
 
+/**
+ * Render nội dung chi tiết cho từng mốc sự kiện trong lịch sử thay đổi ticket.
+ * Phân nhánh giữa sự kiện phân công/điều phối KTV và sự kiện chuyển trạng thái SLA.
+ */
 function HistoryItemContent({ item }) {
+  // Nhánh 1: Lịch sử phân công hoặc điều phối lại kỹ thuật viên phụ trách
   if (item.type === "assignment") {
     return (
       <>
@@ -44,6 +69,7 @@ function HistoryItemContent({ item }) {
     );
   }
 
+  // Nhánh 2: Lịch sử chuyển đổi trạng thái xử lý SLA (từ trạng thái cũ sang trạng thái mới)
   return (
     <>
       <p className="text-xs font-bold text-brand-ink">Chuyển trạng thái SLA</p>
@@ -71,7 +97,11 @@ function HistoryItemContent({ item }) {
   );
 }
 
+/**
+ * Component hiển thị timeline nhật ký thay đổi (Audit Trail) của ticket.
+ */
 function TicketHistoryTimeline({ history, error, loading, onRetry }) {
+  // Ẩn block lịch sử nếu đã tải xong, không có lỗi và chưa phát sinh bản ghi thay đổi nào
   if (!loading && !error && (!history || history.length === 0)) {
     return null;
   }
@@ -95,6 +125,7 @@ function TicketHistoryTimeline({ history, error, loading, onRetry }) {
         ) : null}
       </div>
 
+      {/* Trạng thái skeleton khi đang tải dữ liệu lịch sử */}
       {loading ? (
         <div className="mt-4 space-y-3" aria-label="Đang tải lịch sử">
           {[1, 2].map((item) => (
@@ -109,6 +140,7 @@ function TicketHistoryTimeline({ history, error, loading, onRetry }) {
         </div>
       ) : null}
 
+      {/* Thông báo lỗi nếu tải lịch sử thất bại */}
       {!loading && error ? (
         <p
           className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800"
@@ -118,6 +150,7 @@ function TicketHistoryTimeline({ history, error, loading, onRetry }) {
         </p>
       ) : null}
 
+      {/* Dòng thời gian theo thứ tự gồm đường nối dọc và icon phân biệt loại thay đổi */}
       {!loading && !error && history?.length > 0 ? (
         <ol className="mt-4 space-y-0">
           {history.map((item, index) => (

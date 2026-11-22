@@ -1,3 +1,8 @@
+/**
+ * Cấu hình danh mục điều hướng (Navigation Menu) phân theo vai trò người dùng.
+ * Vai trò: Nguồn dữ liệu duy nhất (Single Source of Truth) cho Sidebar, MobileSidebar,
+ * CommandMenu và logic xác định tiêu đề trang động trong AppLayout.
+ */
 import {
   AppWindow,
   BarChart3,
@@ -17,7 +22,14 @@ import {
   Users,
 } from "lucide-react";
 
+/**
+ * Bản đồ cấu hình menu điều hướng tương ứng với từng role:
+ * - `user`: Cổng nhân viên tự phục vụ (tạo/theo dõi ticket, thiết bị, bản quyền, hồ sơ).
+ * - `technician`: Không gian xử lý sự cố IT, cấp phát tài sản, bản quyền và giám sát USB/DLP.
+ * - `admin`: Quản trị toàn hệ thống, kho dữ liệu BI, nhân sự, danh mục và báo cáo.
+ */
 export const NAVIGATION_BY_ROLE = {
+  // Menu dành cho nhân viên / người dùng cuối
   user: [
     {
       label: "Cổng Người Dùng",
@@ -61,6 +73,7 @@ export const NAVIGATION_BY_ROLE = {
       end: true,
     },
   ],
+  // Menu dành cho kỹ thuật viên IT Support
   technician: [
     {
       label: "Tổng Quan",
@@ -115,10 +128,12 @@ export const NAVIGATION_BY_ROLE = {
       path: "/technician/usb-security",
       icon: Usb,
       iconColor: "text-amber-600",
+      // Hiển thị chấm cảnh báo nổi bật cho module an ninh USB/DLP
       alertDot: true,
       end: true,
     },
   ],
+  // Menu dành cho quản trị viên hệ thống
   admin: [
     {
       label: "Hàng Đợi Ticket",
@@ -146,6 +161,7 @@ export const NAVIGATION_BY_ROLE = {
       path: "/admin/usb-security",
       icon: Usb,
       iconColor: "text-amber-600",
+      // Hiển thị chấm cảnh báo nổi bật cho module an ninh USB/DLP
       alertDot: true,
       end: true,
     },
@@ -183,10 +199,16 @@ export const NAVIGATION_BY_ROLE = {
   ],
 };
 
+/**
+ * Lấy danh sách các mục điều hướng hợp lệ theo vai trò; trả về mảng rỗng nếu role không khớp.
+ */
 export function getNavigationForRole(role) {
   return NAVIGATION_BY_ROLE[role] ?? [];
 }
 
+/**
+ * Tìm mục điều hướng khớp chính xác với pathname hiện tại để xác định tiêu đề trang và trạng thái active.
+ */
 export function getNavigationItemByPath(role, pathname) {
   return getNavigationForRole(role).find((item) => item.path === pathname);
 }

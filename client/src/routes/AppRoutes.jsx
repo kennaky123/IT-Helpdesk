@@ -1,3 +1,10 @@
+/**
+ * Cấu hình bảng định tuyến (Routing Table) trung tâm của ứng dụng IT Helpdesk.
+ * Vai trò:
+ * - Tách code theo từng trang (Code Splitting) bằng React.lazy & Suspense kèm Skeleton phù hợp.
+ * - Phân tách route công khai (/login, /forgot-password) và route nội bộ (ProtectedRoute + AppLayout).
+ * - Áp dụng phân quyền theo vai trò (RoleRoute) cho 3 phân hệ: User, Technician và Admin.
+ */
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import AuthLoadingScreen from "../components/auth/AuthLoadingScreen.jsx";
@@ -14,6 +21,7 @@ import LoginPage from "../pages/auth/LoginPage.jsx";
 import ProtectedRoute from "./ProtectedRoute.jsx";
 import RoleRoute from "./RoleRoute.jsx";
 
+// Tải lười (Lazy Load) các trang chức năng để giảm kích thước bundle khởi tạo ban đầu
 const AdminDashboardPage = lazy(
   () => import("../pages/admin/AdminDashboardPage.jsx"),
 );
@@ -45,10 +53,16 @@ const AssetManagementPage = lazy(() => import("../pages/admin/AssetManagementPag
 const SoftwareLicensePage = lazy(() => import("../pages/admin/SoftwareLicensePage.jsx"));
 const UsbSecurityPage = lazy(() => import("../pages/admin/UsbSecurityPage.jsx"));
 
+/**
+ * Wrapper Suspense dùng khung xương danh sách mặc định cho các trang tiêu chuẩn.
+ */
 function StandardPageRoute({ children }) {
   return <Suspense fallback={<TicketListSkeleton />}>{children}</Suspense>;
 }
 
+/**
+ * Wrapper Suspense riêng cho trang Dashboard BI kèm DashboardSkeleton.
+ */
 function AdminDashboardRoute() {
   return (
     <Suspense fallback={<DashboardSkeleton />}>
@@ -57,6 +71,9 @@ function AdminDashboardRoute() {
   );
 }
 
+/**
+ * Wrapper Suspense cho trang hàng đợi Ticket của Admin.
+ */
 function AdminTicketsRoute() {
   return (
     <Suspense fallback={<TicketListSkeleton />}>
@@ -65,6 +82,9 @@ function AdminTicketsRoute() {
   );
 }
 
+/**
+ * Wrapper Suspense cho trang quản lý người dùng của Admin.
+ */
 function AdminUsersRoute() {
   return (
     <Suspense fallback={<TicketListSkeleton />}>
@@ -73,6 +93,9 @@ function AdminUsersRoute() {
   );
 }
 
+/**
+ * Wrapper Suspense cho trang tạo ticket mới kèm CreateTicketPageSkeleton.
+ */
 function CreateTicketRoute() {
   return (
     <Suspense fallback={<CreateTicketPageSkeleton />}>
@@ -81,6 +104,9 @@ function CreateTicketRoute() {
   );
 }
 
+/**
+ * Wrapper Suspense cho màn hình chi tiết ticket 3 cột kèm TicketDetailSkeleton.
+ */
 function TicketDetailRoute() {
   return (
     <Suspense fallback={<TicketDetailSkeleton />}>
@@ -89,6 +115,12 @@ function TicketDetailRoute() {
   );
 }
 
+/**
+ * Điều hướng thông minh tại đường dẫn gốc "/":
+ * - Nếu đang kiểm tra phiên -> hiển thị AuthLoadingScreen.
+ * - Nếu đã đăng nhập -> chuyển tới trang chủ mặc định theo vai trò.
+ * - Nếu chưa đăng nhập -> chuyển tới /login.
+ */
 function RootRedirect() {
   const { isAuthenticated, isLoading, user } = useAuth();
 
@@ -104,13 +136,18 @@ function RootRedirect() {
   );
 }
 
+/**
+ * Khai báo toàn bộ cây định tuyến của ứng dụng.
+ */
 function AppRoutes() {
   return (
     <Routes>
+      {/* Tuyến đường gốc và các trang xác thực công khai */}
       <Route path="/" element={<RootRedirect />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
+      {/* Nhóm tuyến đường yêu cầu đăng nhập và sử dụng khung AppLayout */}
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route path="unauthorized" element={<UnauthorizedPage />} />
@@ -119,6 +156,7 @@ function AppRoutes() {
             element={<StandardPageRoute><ProfilePage /></StandardPageRoute>}
           />
 
+          {/* Phân hệ dành riêng cho Người dùng cuối (role: user) */}
           <Route element={<RoleRoute allowedRoles={["user"]} />}>
             <Route
               path="user/overview"
@@ -146,6 +184,7 @@ function AppRoutes() {
             />
           </Route>
 
+          {/* Phân hệ dành riêng cho Kỹ thuật viên IT (role: technician) */}
           <Route element={<RoleRoute allowedRoles={["technician"]} />}>
             <Route
               path="technician/overview"
@@ -185,6 +224,7 @@ function AppRoutes() {
             />
           </Route>
 
+          {/* Phân hệ dành riêng cho Quản trị viên hệ thống (role: admin) */}
           <Route element={<RoleRoute allowedRoles={["admin"]} />}>
             <Route
               path="admin/dashboard"
@@ -228,6 +268,7 @@ function AppRoutes() {
             />
           </Route>
 
+          {/* Trang 404 bên trong AppLayout cho các đường dẫn không hợp lệ sau khi đã đăng nhập */}
           <Route
             path="*"
             element={<StandardPageRoute><NotFoundPage /></StandardPageRoute>}
@@ -235,6 +276,7 @@ function AppRoutes() {
         </Route>
       </Route>
 
+      {/* Bắt mọi đường dẫn lạ khi chưa đăng nhập để chuyển về luồng RootRedirect */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

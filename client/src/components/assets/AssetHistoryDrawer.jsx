@@ -1,9 +1,18 @@
+/**
+ * Ngăn kéo trượt bên phải (Drawer) hiển thị lịch sử vòng đời của một thiết bị IT trong module quản lý tài sản (Asset).
+ * Tải chi tiết thiết bị theo assetId và hiển thị dòng thời gian các sự kiện nhập kho, cấp phát, thu hồi, đổi trạng thái, cập nhật.
+ *
+ * Props:
+ * - assetId: ID của thiết bị cần tra cứu lịch sử.
+ * - onClose: Callback đóng drawer.
+ */
 import { useEffect, useState } from "react";
 import { Clock, History, User, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { getAsset } from "../../services/assetService.js";
 import { formatTicketDateTime } from "../../utils/ticketPermissions.js";
 
+// Ánh xạ mã hành động lịch sử thiết bị sang nhãn tiếng Việt và lớp màu badge
 const ACTION_LABELS = {
   created: { text: "Nhập kho mới", color: "bg-blue-100 text-brand-blue" },
   assigned: { text: "Cấp phát cho nhân viên", color: "bg-purple-100 text-brand-violet" },
@@ -12,10 +21,15 @@ const ACTION_LABELS = {
   updated: { text: "Cập nhật cấu hình", color: "bg-gray-100 text-brand-slate" },
 };
 
+/**
+ * Component drawer xem lịch sử biến động và sử dụng thiết bị.
+ */
 function AssetHistoryDrawer({ assetId, onClose }) {
+  // State lưu chi tiết thiết bị (kèm mảng history) và trạng thái tải API
   const [asset, setAsset] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Effect gọi API lấy chi tiết thiết bị và lịch sử theo assetId, hỗ trợ hủy request khi unmount
   useEffect(() => {
     const controller = new AbortController();
     getAsset(assetId, { signal: controller.signal })
@@ -33,11 +47,13 @@ function AssetHistoryDrawer({ assetId, onClose }) {
   return (
     <div
       onClick={(e) => {
+        // Đóng drawer khi click ra vùng nền tối bên ngoài
         if (e.target === e.currentTarget) onClose();
       }}
       className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs animate-in fade-in"
     >
       <div className="w-full max-w-md bg-white h-full shadow-2xl flex flex-col border-l border-brand-bone animate-in slide-in-from-right duration-200">
+        {/* Đầu drawer hiển thị tên và mã Asset Tag của thiết bị */}
         <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100 text-brand-violet">
@@ -61,6 +77,7 @@ function AssetHistoryDrawer({ assetId, onClose }) {
           </button>
         </div>
 
+        {/* Thân drawer hiển thị trạng thái tải, rỗng hoặc dòng thời gian lịch sử */}
         <div className="p-5 flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center py-12 text-xs text-brand-slate">
@@ -72,6 +89,7 @@ function AssetHistoryDrawer({ assetId, onClose }) {
             </div>
           ) : (
             <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-brand-bone">
+              {/* Đảo ngược bản sao mảng history để hiển thị mốc thời gian mới nhất lên trên cùng */}
               {asset.history
                 .slice()
                 .reverse()

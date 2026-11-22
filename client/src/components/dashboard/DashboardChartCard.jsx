@@ -1,5 +1,23 @@
+/**
+ * Khung thẻ chuẩn hóa bao bọc từng biểu đồ Recharts hoặc khối phân tích trên trang Dashboard.
+ *
+ * Props:
+ * - titleId: ID dùng để liên kết thuộc tính aria-labelledby của <section> với tiêu đề <h2>.
+ * - title: Tiêu đề của biểu đồ/báo cáo.
+ * - description: Mô tả ngắn về chỉ số hoặc khoảng thời gian biểu đồ đang thể hiện.
+ * - badge: Nhãn phụ dạng monospace hiển thị ở góc trên bên phải (tùy chọn).
+ * - children: Nội dung biểu đồ (thường là các component bọc Recharts ResponsiveContainer).
+ * - className: Lớp CSS bổ sung để điều chỉnh span cột trong CSS Grid (vd: "xl:col-span-2").
+ *
+ * Vai trò trong Dashboard (Recharts):
+ * - Đảm bảo container cha có min-w-0 và overflow-hidden để ResponsiveContainer của Recharts
+ *   tính toán lại kích thước chính xác trong layout Grid mà không gây tràn chiều ngang.
+ */
 import { motion } from "motion/react";
 
+/**
+ * Render card bọc biểu đồ với phần đầu (tiêu đề, mô tả, badge tùy chọn) và vùng nội dung co giãn an toàn.
+ */
 function DashboardChartCard({
   titleId,
   title,

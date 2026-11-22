@@ -1,6 +1,21 @@
+/**
+ * Phần đầu trang (Page Header) chuẩn hóa cho các không gian làm việc trong hệ thống IT Helpdesk.
+ *
+ * Props:
+ * - eyebrow: Nhãn phân hệ ngắn hiển thị dạng Badge phía trên tiêu đề (vd: "CMDB", "FINOPS").
+ * - title: Tiêu đề chính của trang hiện tại.
+ * - description: Mô tả ngắn về phạm vi hoặc chức năng của trang.
+ * - actions: React node tùy chọn chứa các nút thao tác nhanh đặt bên phải header.
+ *
+ * Vai trò trong UI Layout:
+ * - Đảm bảo tính nhất quán về thị giác, phân cấp thông tin và hiệu ứng xuất hiện ở đầu các trang quản lý.
+ */
 import { motion } from "motion/react";
 import { Badge } from "../ui/badge.jsx";
 
+/**
+ * Render khối tiêu đề trang kèm hiệu ứng trượt nhẹ (motion.header) và vùng nút hành động bên phải.
+ */
 function WorkspacePageHeader({ eyebrow, title, description, actions }) {
   return (
     <motion.header

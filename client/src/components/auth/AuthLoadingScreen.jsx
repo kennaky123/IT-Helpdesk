@@ -1,5 +1,17 @@
+/**
+ * Component hiển thị màn hình chờ trong giai đoạn kiểm tra và khôi phục phiên đăng nhập.
+ *
+ * Props: Không nhận props.
+ *
+ * Vai trò trong UI Layout / Auth:
+ * - Được render tạm thời bởi lớp bảo vệ route/AuthProvider khi ứng dụng đang xác thực
+ *   token lưu trữ, giúp tránh nhấp nháy giao diện hoặc điều hướng nhầm về trang đăng nhập.
+ */
 import { LoaderCircle } from "lucide-react";
 
+/**
+ * Hiển thị vòng xoay tải ở chính giữa màn hình kèm thông báo trạng thái cho trình đọc màn hình.
+ */
 function AuthLoadingScreen() {
   return (
     <main

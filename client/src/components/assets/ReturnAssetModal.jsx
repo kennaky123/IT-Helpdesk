@@ -1,13 +1,29 @@
+/**
+ * Modal thu hồi thiết bị đang cấp phát từ nhân viên về kho hoặc chuyển sang trạng thái bảo trì trong module quản lý tài sản (Asset).
+ * Cho phép chọn trạng thái sau thu hồi (`in_stock` hoặc `maintenance`), nhập ghi chú tình trạng máy và xác nhận gọi API thu hồi.
+ *
+ * Props:
+ * - asset: Đối tượng thiết bị đang ở trạng thái sử dụng cần thu hồi.
+ * - onClose: Callback đóng modal.
+ * - onReturned: Callback(updated) được gọi sau khi thu hồi thiết bị thành công.
+ */
 import { useState } from "react";
 import { HardDrive, RotateCcw, Wrench, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { returnAsset } from "../../services/assetService.js";
 
+/**
+ * Component modal xác nhận thu hồi thiết bị về kho hoặc chuyển bảo trì.
+ */
 function ReturnAssetModal({ asset, onClose, onReturned }) {
+  // Trạng thái thiết bị sau khi thu hồi ("in_stock": về kho sẵn sàng, "maintenance": cần bảo trì/sửa chữa)
   const [status, setStatus] = useState("in_stock");
+  // Ghi chú tình trạng thiết bị lúc thu hồi
   const [note, setNote] = useState("");
+  // Trạng thái đang gửi API thu hồi để vô hiệu hóa nút và chặn đóng modal
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Handler gửi yêu cầu thu hồi thiết bị lên API và thông báo kết quả theo trạng thái đích
   async function handleSubmit(e) {
     e.preventDefault();
     setIsSubmitting(true);
@@ -32,11 +48,13 @@ function ReturnAssetModal({ asset, onClose, onReturned }) {
   return (
     <div
       onClick={(e) => {
+        // Chỉ đóng modal khi click ra vùng nền ngoài và không đang xử lý submit
         if (e.target === e.currentTarget && !isSubmitting) onClose();
       }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
     >
       <div className="w-full max-w-md bg-white rounded-2xl border border-brand-bone shadow-xl overflow-hidden">
+        {/* Đầu modal hiển thị tiêu đề thu hồi và nút đóng */}
         <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
@@ -60,8 +78,10 @@ function ReturnAssetModal({ asset, onClose, onReturned }) {
           </button>
         </div>
 
+        {/* Form chọn trạng thái sau thu hồi và ghi chú tình trạng thiết bị */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {/* Asset Info Card */}
+          {/* Thẻ tóm tắt mã máy, tên máy và nhân viên đang giữ thiết bị */}
           <div className="rounded-xl border border-brand-bone bg-brand-mist/60 p-3.5 space-y-1.5 text-xs">
             <div className="flex justify-between">
               <span className="text-brand-slate">Mã thiết bị:</span>
@@ -79,6 +99,7 @@ function ReturnAssetModal({ asset, onClose, onReturned }) {
             </div>
           </div>
 
+          {/* Hai nút chọn nhanh trạng thái thiết bị sau khi thu hồi */}
           <div>
             <label className="block text-xs font-semibold text-brand-ink mb-2">
               Trạng Thái Sau Khi Thu Hồi
@@ -111,6 +132,7 @@ function ReturnAssetModal({ asset, onClose, onReturned }) {
             </div>
           </div>
 
+          {/* Ô nhập ghi chú tình trạng thực tế khi thu hồi */}
           <div>
             <label className="block text-xs font-semibold text-brand-ink mb-1">
               Ghi Chú Thu Hồi / Tình Trạng Thiết Bị
@@ -124,6 +146,7 @@ function ReturnAssetModal({ asset, onClose, onReturned }) {
             />
           </div>
 
+          {/* Hàng nút Hủy và Xác nhận thu hồi */}
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-brand-bone">
             <button
               type="button"

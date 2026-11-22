@@ -1,3 +1,14 @@
+/**
+ * Nút chuông và hộp thoại popover hiển thị danh sách thông báo thời gian thực trên thanh Header.
+ *
+ * Props: Không nhận props (đọc danh sách thông báo và các action từ `useUiStore`).
+ *
+ * Vai trò trong UI Layout / Navigation:
+ * - Các sự kiện SSE (`data-changed`) từ endpoint `/events` được hook `useRealtimeUpdates` lắng nghe,
+ *   chuyển đổi thành thông báo và đẩy vào `useUiStore` (`addNotification`).
+ * - Component này hiển thị chấm báo chưa đọc trên nút chuông, tự động đánh dấu đã đọc khi mở danh sách
+ *   và cho phép xóa toàn bộ thông báo tạm thời.
+ */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Bell, CheckCircle2, Info, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -6,6 +17,9 @@ import { useUiStore } from "../../stores/useUiStore.js";
 import { Badge } from "../ui/badge.jsx";
 import { Button } from "../ui/button.jsx";
 
+/**
+ * Chọn biểu tượng và màu nền tương ứng với mức độ nghiêm trọng của thông báo SSE ("error" | "warning" | "success" | "info").
+ */
 function NotificationIcon({ level }) {
   if (level === "error" || level === "warning") {
     return (
@@ -34,8 +48,13 @@ function NotificationIcon({ level }) {
   );
 }
 
+/**
+ * Render nút chuông thông báo, quản lý trạng thái popover, đóng khi click ngoài/ESC và đồng bộ trạng thái đã đọc.
+ */
 function NotificationButton() {
+  // Trạng thái đóng/mở popover danh sách thông báo.
   const [isOpen, setIsOpen] = useState(false);
+  // Lấy danh sách thông báo thời gian thực (tối đa 20 mục gần nhất) và các hàm cập nhật từ useUiStore.
   const notifications = useUiStore((state) => state.notifications);
   const markAllNotificationsRead = useUiStore(
     (state) => state.markAllNotificationsRead,
@@ -44,10 +63,13 @@ function NotificationButton() {
   const containerRef = useRef(null);
   const buttonRef = useRef(null);
   const closePopover = useCallback(() => setIsOpen(false), []);
+  // Đếm số thông báo chưa đọc để quyết định hiển thị chấm tím trên icon chuông.
   const unreadCount = notifications.filter((item) => !item.read).length;
 
+  // Đóng popover khi người dùng click ra ngoài vùng containerRef.
   useClickOutside(containerRef, closePopover, isOpen);
 
+  // Khi popover đang mở, lắng nghe phím Escape để đóng và trả focus lại cho nút chuông.
   useEffect(() => {
     if (!isOpen) {
       return undefined;
@@ -64,6 +86,7 @@ function NotificationButton() {
     return () => document.removeEventListener("keydown", handleEscape);
   }, [isOpen]);
 
+  // Đảo trạng thái mở popover; nếu mở ra mà đang có thông báo chưa đọc thì đánh dấu tất cả là đã đọc.
   function handleToggle() {
     const nextOpen = !isOpen;
     setIsOpen(nextOpen);
@@ -84,11 +107,13 @@ function NotificationButton() {
         aria-haspopup="dialog"
       >
         <Bell className="size-3.5" aria-hidden="true" />
+        {/* Chấm tím báo hiệu có thông báo thời gian thực chưa đọc */}
         {unreadCount > 0 ? (
           <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-brand-violet ring-2 ring-white" />
         ) : null}
       </button>
 
+      {/* Popover hiển thị danh sách thông báo đẩy từ SSE */}
       <AnimatePresence>
         {isOpen ? (
           <motion.div

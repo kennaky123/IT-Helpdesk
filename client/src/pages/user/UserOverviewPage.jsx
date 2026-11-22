@@ -1,3 +1,12 @@
+/**
+ * @file UserOverviewPage.jsx
+ * @description Trang tổng quan Cổng tự phục vụ CNTT (Self-Service Portal) dành cho nhân viên/người dùng nội bộ.
+ * @role User (Nhân viên nội bộ).
+ * @flow
+ * 1. Tải thống kê cá nhân và các ticket gần đây thông qua hook `useUserDashboard()`.
+ * 2. Cung cấp thanh tìm kiếm & chip từ khóa nhanh để lọc cẩm nang tự khắc phục sự cố (`KB_ARTICLES`) theo thời gian thực.
+ * 3. Hiển thị 4 thẻ danh mục hỗ trợ nhanh, 4 thẻ KPI ticket, danh sách ticket gần đây, mục FAQ dạng accordion, thẻ tải phần mềm bảo mật USB Agent (`.EXE`) và banner liên hệ hotline.
+ */
 import {
   CheckCircle2,
   ChevronDown,
@@ -23,14 +32,21 @@ import useUserDashboard from "../../hooks/useUserDashboard.js";
 import { getDashboardErrorMessage } from "../../services/dashboardService.js";
 import { getAgentDownloadUrl } from "../../services/usbService.js";
 
+/**
+ * Component trang tổng quan dành cho User.
+ * Kết hợp tra cứu Knowledge Base tự phục vụ, theo dõi tiến độ ticket cá nhân và tải công cụ bảo mật USB Agent.
+ */
 function UserOverviewPage() {
+  // Hook lấy dữ liệu dashboard của người dùng (gồm summary số lượng ticket và recentTickets)
   const dashboard = useUserDashboard();
   const recent = dashboard.data?.recentTickets ?? [];
   const summary = dashboard.data?.summary ?? {};
 
+  // State từ khóa tìm kiếm bài viết Knowledge Base và ID bài viết đang được mở rộng (accordion)
   const [kbQuery, setKbQuery] = useState("");
   const [openKbId, setOpenKbId] = useState(KB_ARTICLES[0]?.id ?? null);
 
+  // Lọc danh sách bài viết hướng dẫn KB theo tiêu đề, danh mục hoặc nội dung câu trả lời
   const filteredKb = useMemo(() => {
     const q = kbQuery.trim().toLowerCase();
     if (!q) return KB_ARTICLES;
@@ -50,6 +66,7 @@ function UserOverviewPage() {
   return (
     <section className="space-y-8 pb-12">
       {/* Hero Banner with Search (Matches DeskPro IT View 5) */}
+      {/* Khối Hero Banner đầu trang: thanh tìm kiếm nhanh bài viết Knowledge Base và chip từ khóa gợi ý */}
       <div className="relative overflow-hidden border-b border-brand-bone bg-brand-onyx px-4 py-12 text-white sm:px-6">
         <div
           className="pointer-events-none absolute inset-0 opacity-20"
@@ -110,6 +127,7 @@ function UserOverviewPage() {
       {/* Main Content Container */}
       <div className="mx-auto max-w-6xl space-y-8 px-4 sm:px-6">
         {/* Category Quick Cards (4 Columns from DeskPro IT View 5) */}
+        {/* 4 thẻ danh mục hỗ trợ nhanh giúp người dùng điều hướng thẳng đến trang tạo ticket mới */}
         <div>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-display text-lg font-extrabold text-brand-ink">
@@ -248,6 +266,7 @@ function UserOverviewPage() {
         </div>
 
         {/* Live User Ticket Metrics */}
+        {/* 4 thẻ thống kê số liệu ticket trực tiếp của người dùng (Tổng, Đang xử lý, Chờ phản hồi, Đã hoàn thành) */}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <WorkspaceStatCard
             icon={Ticket}
@@ -279,6 +298,7 @@ function UserOverviewPage() {
         </div>
 
         {/* Recent Tickets + Knowledge Base Accordion */}
+        {/* Bố cục 2 cột: Danh sách yêu cầu gần đây (cột trái) và Cẩm nang khắc phục sự cố FAQ dạng Accordion (cột phải) */}
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Left: Recent Tickets */}
           <section className="overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs">
@@ -441,6 +461,7 @@ function UserOverviewPage() {
         </div>
 
         {/* Endpoint USB Security Agent Download Card */}
+        {/* Thẻ tải xuống phần mềm bảo mật USB Agent (Windows .EXE) thông qua URL từ getAgentDownloadUrl() */}
         <div className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-purple-200/80 bg-gradient-to-r from-purple-50/70 via-white to-white p-6 shadow-xs sm:flex-row sm:items-center">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand-violet text-white shadow-xs">
@@ -471,6 +492,7 @@ function UserOverviewPage() {
         </div>
 
         {/* Bottom Direct Support Callout */}
+        {/* Banner hỗ trợ trực tiếp cuối trang kèm Hotline nội bộ Ext: 8888 và nút tạo ticket mới */}
         <div className="flex flex-col items-center justify-between gap-4 rounded-2xl border border-brand-bone bg-white p-6 shadow-xs sm:flex-row">
           <div className="flex items-center gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand-ink text-white">

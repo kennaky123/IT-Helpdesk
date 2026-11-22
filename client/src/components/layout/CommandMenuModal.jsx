@@ -1,3 +1,15 @@
+/**
+ * Hộp thoại tìm kiếm nhanh toàn cục (Command Menu / Command Palette).
+ *
+ * Props:
+ * - open: Trạng thái đóng/mở của modal (quản lý bởi useUiStore trong AppLayout).
+ * - onClose: Callback đóng modal khi người dùng bấm nền mờ, nút ESC hoặc chọn một kết quả.
+ *
+ * Vai trò trong UI Layout / Navigation:
+ * - Cho phép người dùng tìm và nhảy nhanh đến các trang được phân quyền hoặc bài viết cẩm nang (Knowledge Base).
+ * - Phím tắt toàn cục `Ctrl+K` / `Cmd+K` (để bật/tắt modal) và phím `Escape` (để đóng) được lắng nghe tại `AppLayout.jsx`;
+ *   nút bấm kích hoạt trực quan đặt trên `Header.jsx`.
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Compass, FileText, Search } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -6,12 +18,17 @@ import { getNavigationForRole } from "../../constants/navigation.js";
 import { KB_ARTICLES } from "../../data/itsmData.js";
 import useAuth from "../../hooks/useAuth.js";
 
+/**
+ * Render modal tìm kiếm nhanh có hiệu ứng chuyển động, tự động focus ô nhập liệu và lọc kết quả theo từ khóa.
+ */
 function CommandMenuModal({ open, onClose }) {
+  // Từ khóa tìm kiếm hiện tại trong ô input của Command Menu.
   const [query, setQuery] = useState("");
   const inputRef = useRef(null);
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  // Khi modal chuyển sang trạng thái mở, đợi frame render kế tiếp rồi tự động focus vào ô tìm kiếm.
   useEffect(() => {
     if (!open) return undefined;
     const timer = window.requestAnimationFrame(() => {
@@ -20,16 +37,19 @@ function CommandMenuModal({ open, onClose }) {
     return () => window.cancelAnimationFrame(timer);
   }, [open]);
 
+  // Đặt lại từ khóa tìm kiếm về rỗng trước khi gọi callback đóng modal.
   function handleClose() {
     setQuery("");
     onClose();
   }
 
+  // Lấy danh sách trang điều hướng hợp lệ theo vai trò người dùng hiện tại.
   const navItems = useMemo(
     () => getNavigationForRole(user?.role),
     [user?.role],
   );
 
+  // Lọc danh sách trang điều hướng theo từ khóa tìm kiếm (không phân biệt hoa thường).
   const filteredNav = useMemo(() => {
     const q = query.toLowerCase().trim();
     return navItems.filter(
@@ -37,6 +57,7 @@ function CommandMenuModal({ open, onClose }) {
     );
   }, [navItems, query]);
 
+  // Lọc danh sách bài viết cẩm nang tự phục vụ theo tiêu đề hoặc tên danh mục.
   const filteredKb = useMemo(() => {
     const q = query.toLowerCase().trim();
     return KB_ARTICLES.filter(
@@ -47,6 +68,7 @@ function CommandMenuModal({ open, onClose }) {
     );
   }, [query]);
 
+  // Đóng modal, reset query và điều hướng đến đường dẫn đã chọn.
   function handleSelectPath(path) {
     handleClose();
     navigate(path);
@@ -62,6 +84,7 @@ function CommandMenuModal({ open, onClose }) {
           transition={{ duration: 0.16 }}
           className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/40 backdrop-blur-xs p-4"
         >
+          {/* Nút lớp nền mờ: click ra ngoài hộp thoại để đóng Command Menu */}
           <button
             type="button"
             className="absolute inset-0 cursor-default"

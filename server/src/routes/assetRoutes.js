@@ -1,3 +1,10 @@
+/**
+ * @file assetRoutes.js
+ * @description Định nghĩa Express Router cho nghiệp vụ quản lý tài sản IT (Assets) và yêu cầu cấp phát thiết bị (Asset Requests).
+ * Vai trò trong kiến trúc Backend: Thuộc tầng Router (Express Router), gắn dưới tiền tố `/api/assets`.
+ * Kiểm soát chặt chẽ xác thực JWT, phân quyền theo vai trò (`admin`, `technician`, `user`) và validate dữ liệu đầu vào.
+ * Lưu ý thứ tự route: Khai báo các route tĩnh (`/requests`, `/employees`) trước route động (`/:assetId`) để tránh xung đột tham số.
+ */
 import { Router } from "express";
 import {
   acceptAssetRequest,
@@ -32,6 +39,8 @@ const router = Router();
 
 /* ------------------------ Asset Requests ------------------------ */
 
+// GET /requests - Lấy danh sách yêu cầu cấp phát thiết bị
+// Phân quyền: admin, technician (xem tất cả), user (chỉ xem yêu cầu cấp cho chính mình trong controller)
 router.get(
   "/requests",
   authenticate,
@@ -40,6 +49,8 @@ router.get(
   listAssetRequests,
 );
 
+// POST /requests - Tạo yêu cầu cấp phát thiết bị mới cho nhân viên
+// Phân quyền: Chỉ admin được khởi tạo yêu cầu cấp phát -> validate body -> createAssetRequest
 router.post(
   "/requests",
   authenticate,
@@ -48,6 +59,8 @@ router.post(
   createAssetRequest,
 );
 
+// POST /requests/:requestId/accept - Kỹ thuật viên tiếp nhận xử lý một yêu cầu cấp phát đang chờ
+// Phân quyền: Chỉ technician -> kiểm tra ObjectId hợp lệ -> acceptAssetRequest
 router.post(
   "/requests/:requestId/accept",
   authenticate,
@@ -56,6 +69,8 @@ router.post(
   acceptAssetRequest,
 );
 
+// POST /requests/:requestId/complete - Hoàn tất yêu cầu và bàn giao thiết bị cụ thể từ kho cho nhân viên
+// Phân quyền: admin hoặc technician -> validate requestId & assetId bàn giao -> completeAssetRequest
 router.post(
   "/requests/:requestId/complete",
   authenticate,
@@ -65,6 +80,8 @@ router.post(
   completeAssetRequest,
 );
 
+// POST /requests/:requestId/cancel - Hủy yêu cầu cấp phát thiết bị kèm lý do
+// Phân quyền: admin hoặc technician -> validate requestId & lý do hủy -> cancelAssetRequest
 router.post(
   "/requests/:requestId/cancel",
   authenticate,
@@ -76,6 +93,8 @@ router.post(
 
 /* ------------------------ Assets ------------------------ */
 
+// GET /employees - Lấy danh sách nhân viên khả dụng để cấp phát thiết bị
+// Phân quyền: admin và technician
 router.get(
   "/employees",
   authenticate,
@@ -83,6 +102,8 @@ router.get(
   listAssignableEmployees,
 );
 
+// GET / - Lấy danh sách thiết bị IT (hỗ trợ lọc theo status, type, assignedTo, từ khóa)
+// Phân quyền: Tất cả các vai trò đã đăng nhập (user chỉ thấy thiết bị được cấp cho mình)
 router.get(
   "/",
   authenticate,
@@ -91,6 +112,8 @@ router.get(
   listAssets,
 );
 
+// POST / - Tạo mới thiết bị IT trong kho
+// Phân quyền: Chỉ admin -> validateAssetBody(true) bắt buộc đầy đủ trường tạo mới -> createAsset
 router.post(
   "/",
   authenticate,
@@ -99,6 +122,8 @@ router.post(
   createAsset,
 );
 
+// GET /:assetId - Xem chi tiết một thiết bị kèm lịch sử vòng đời
+// Phân quyền: admin, technician, user (controller kiểm tra quyền sở hữu đối với user)
 router.get(
   "/:assetId",
   authenticate,
@@ -107,6 +132,8 @@ router.get(
   getAsset,
 );
 
+// PATCH /:assetId - Cập nhật thông tin thiết bị (trừ các trường khóa)
+// Phân quyền: admin hoặc technician -> validateAssetId -> validateAssetBody(false) cho phép cập nhật từng phần
 router.patch(
   "/:assetId",
   authenticate,
@@ -116,6 +143,8 @@ router.patch(
   updateAsset,
 );
 
+// DELETE /:assetId - Xóa thiết bị khỏi hệ thống
+// Phân quyền: Chỉ admin -> kiểm tra ObjectId -> deleteAsset
 router.delete(
   "/:assetId",
   authenticate,
@@ -124,6 +153,8 @@ router.delete(
   deleteAsset,
 );
 
+// POST /:assetId/assign - Cấp phát trực tiếp thiết bị cho một nhân viên
+// Phân quyền: admin hoặc technician -> kiểm tra assetId & userId nhận máy -> assignAsset
 router.post(
   "/:assetId/assign",
   authenticate,
@@ -133,6 +164,8 @@ router.post(
   assignAsset,
 );
 
+// POST /:assetId/return - Thu hồi thiết bị từ nhân viên về kho hoặc chuyển bảo trì
+// Phân quyền: admin hoặc technician -> kiểm tra assetId & trạng thái thu hồi -> returnAsset
 router.post(
   "/:assetId/return",
   authenticate,
@@ -143,4 +176,3 @@ router.post(
 );
 
 export default router;
-

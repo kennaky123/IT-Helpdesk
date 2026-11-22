@@ -1,8 +1,22 @@
+/**
+ * Bảng hiển thị tối đa 5 ticket mới nhất vừa được tạo trong hệ thống trên trang Dashboard.
+ *
+ * Props:
+ * - tickets: Mảng các đối tượng ticket mới nhất (mỗi phần tử gồm id, ticketCode, title, category, priority, status, requester, createdAt).
+ * - timeZone: Múi giờ IANA dùng để định dạng cột thời gian tạo chính xác theo cấu hình dashboard.
+ *
+ * Vai trò trong Dashboard:
+ * - Giúp quản trị viên theo dõi nhanh luồng ticket vừa vào hàng đợi và bấm điều hướng sang trang chi tiết
+ *   hoặc mở toàn bộ hàng đợi tại "/admin/tickets".
+ */
 import { Inbox } from "lucide-react";
 import { Link } from "react-router-dom";
 import { formatDashboardDateTime } from "../../utils/dashboardFormatters.js";
 import { TicketPriorityBadge, TicketStatusBadge } from "../ticket/TicketBadges.jsx";
 
+/**
+ * Render danh sách 5 ticket mới nhất với giao diện thích ứng: dạng card trên mobile và bảng đầy đủ từ breakpoint md trở lên.
+ */
 function LatestTicketsTable({ tickets, timeZone }) {
   return (
     <section
@@ -43,6 +57,7 @@ function LatestTicketsTable({ tickets, timeZone }) {
         </div>
       ) : (
         <>
+          {/* Hiển thị dạng danh sách thẻ trên màn hình nhỏ (< md) */}
           <ul className="divide-y divide-brand-bone md:hidden">
             {tickets.map((ticket) => (
               <li key={ticket.id} className="p-4">
@@ -76,6 +91,7 @@ function LatestTicketsTable({ tickets, timeZone }) {
             ))}
           </ul>
 
+          {/* Hiển thị dạng bảng đầy đủ trên màn hình từ breakpoint md trở lên */}
           <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[48rem] border-collapse text-left">
               <thead className="border-b border-brand-bone bg-brand-mist/70 text-[11px] font-bold tracking-wider text-brand-slate uppercase">

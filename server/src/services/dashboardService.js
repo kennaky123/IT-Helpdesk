@@ -1,3 +1,10 @@
+/**
+ * @file dashboardService.js
+ * @description Service xử lý nghiệp vụ lõi cho tổng hợp số liệu, biểu đồ và chỉ số hiệu suất Dashboard.
+ * Vai trò Service: Thực thi các MongoDB Aggregation Pipeline đa chiều (`$facet`, `$group`, `$dateToString`),
+ * tính thời gian giải quyết trung bình (chỉ số SLA từ `createdAt` đến `resolvedAt`), chuẩn hóa
+ * chuỗi ngày theo múi giờ Việt Nam (`Asia/Ho_Chi_Minh`) và trả dữ liệu cho Admin, Kỹ thuật viên và User.
+ */
 import {
   TICKET_PRIORITIES,
   TICKET_STATUSES,
@@ -32,10 +39,24 @@ const PRIORITY_LABELS = Object.freeze({
   urgent: "Khẩn cấp",
 });
 
+/**
+ * Làm tròn số thực tới tối đa 2 chữ số thập phân, xử lý sai số dấu phẩy động bằng `Number.EPSILON`.
+ *
+ * @param {number} value - Giá trị số cần làm tròn.
+ * @returns {number} Giá trị sau khi làm tròn 2 chữ số thập phân.
+ */
 function roundToTwoDecimals(value) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+/**
+ * Chuyển đổi đối tượng Date (hoặc chuỗi ngày) thành khóa ngày `YYYY-MM-DD` theo múi giờ chỉ định.
+ *
+ * @param {Date|string|number} date - Thời điểm cần quy đổi.
+ * @param {string} [timeZone=DASHBOARD_TIME_ZONE] - Tên múi giờ IANA (mặc định `Asia/Ho_Chi_Minh`).
+ * @returns {string} Chuỗi ngày định dạng `YYYY-MM-DD`.
+ * @throws {TypeError} Nếu giá trị `date` không hợp lệ.
+ */
 export function getDateKeyInTimeZone(
   date,
   timeZone = DASHBOARD_TIME_ZONE,
@@ -46,6 +67,7 @@ export function getDateKeyInTimeZone(
     throw new TypeError("Ngày tham chiếu dashboard không hợp lệ.");
   }
 
+  // Dùng Intl.DateTimeFormat.formatToParts để tách chính xác năm/tháng/ngày theo múi giờ địa phương
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
@@ -61,6 +83,14 @@ export function getDateKeyInTimeZone(
   return `${partValues.year}-${partValues.month}-${partValues.day}`;
 }
 
+/**
+ * Dịch chuyển một khóa ngày dương lịch `YYYY-MM-DD` thêm hoặc bớt một số ngày nguyên.
+ *
+ * @param {string} dateKey - Khóa ngày gốc định dạng `YYYY-MM-DD`.
+ * @param {number} amount - Số ngày cần cộng (dương) hoặc trừ (âm).
+ * @returns {string} Khóa ngày mới định dạng `YYYY-MM-DD`.
+ * @throws {TypeError} Nếu định dạng ngày hoặc số ngày dịch chuyển không hợp lệ.
+ */
 export function shiftCalendarDateKey(dateKey, amount) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
 
@@ -68,6 +98,7 @@ export function shiftCalendarDateKey(dateKey, amount) {
     throw new TypeError("Ngày hoặc số ngày dịch chuyển không hợp lệ.");
   }
 
+  // Tính toán trên UTC để tránh sai lệch chuyển đổi giờ mùa hè (DST)
   const shiftedDate = new Date(
     Date.UTC(
       Number(match[1]),
@@ -79,6 +110,16 @@ export function shiftCalendarDateKey(dateKey, amount) {
   return shiftedDate.toISOString().slice(0, 10);
 }
 
+/**
+ * Điền đầy đủ chuỗi dữ liệu biểu đồ cho N ngày gần nhất (kể cả những ngày có giá trị 0).
+ *
+ * @param {Array} rows - Các dòng kết quả aggregation nhóm theo ngày (`_id` hoặc `date`).
+ * @param {Object} [options] - Tùy chọn cấu hình khoảng ngày và múi giờ.
+ * @param {Date} [options.now=new Date()] - Ngày tham chiếu cuối cùng của chuỗi.
+ * @param {number} [options.days=7] - Số ngày cần tạo chuỗi (1..366).
+ * @param {string} [options.timeZone=DASHBOARD_TIME_ZONE] - Múi giờ quy đổi ngày.
+ * @returns {Array<{date: string, name: string, value: number}>} Mảng điểm dữ liệu liên tục theo ngày (`DD/MM`).
+ */
 export function buildLastNDaysSeries(
   rows,
   {
@@ -91,6 +132,7 @@ export function buildLastNDaysSeries(
     throw new RangeError("Số ngày thống kê phải từ 1 đến 366.");
   }
 
+  // Tạo danh sách đầy đủ N khóa ngày liên tiếp kết thúc ở hôm nay
   const todayKey = getDateKeyInTimeZone(now, timeZone);
   const dateKeys = Array.from({ length: days }, (_item, index) =>
     shiftCalendarDateKey(todayKey, index - days + 1),
@@ -98,6 +140,7 @@ export function buildLastNDaysSeries(
   const allowedDateKeys = new Set(dateKeys);
   const countByDate = new Map();
 
+  // Cộng dồn các bản ghi thống kê vào Map theo ngày nằm trong cửa sổ cho phép
   for (const row of rows ?? []) {
     const dateKey = row._id ?? row.date;
     const rawValue = row.value ?? row.count ?? 0;
@@ -112,6 +155,7 @@ export function buildLastNDaysSeries(
     }
   }
 
+  // Ánh xạ sang cấu trúc nhãn hiển thị biểu đồ (DD/MM) với mặc định 0 nếu không có dữ liệu
   return dateKeys.map((dateKey) => {
     const dateParts = dateKey.split("-");
     const month = dateParts[1];
@@ -125,6 +169,13 @@ export function buildLastNDaysSeries(
   });
 }
 
+/**
+ * Chuẩn hóa chuỗi thống kê theo danh sách enum cố định, đảm bảo mọi trạng thái đều có mặt (mặc định 0).
+ *
+ * @param {Array} rows - Kết quả aggregation đếm theo khóa enum.
+ * @param {Array<{key: string, name: string}>} definitions - Danh sách định nghĩa enum và nhãn tiếng Việt.
+ * @returns {Array<{key: string, name: string, value: number}>} Chuỗi dữ liệu đầy đủ mọi khóa định nghĩa.
+ */
 export function fillEnumSeries(rows, definitions) {
   const countByKey = new Map();
 
@@ -144,6 +195,13 @@ export function fillEnumSeries(rows, definitions) {
   }));
 }
 
+/**
+ * Quy đổi thời gian xử lý trung bình (SLA) từ mili-giây sang phút và giờ kèm cỡ mẫu.
+ *
+ * @param {number|null|undefined} averageMilliseconds - Thời gian xử lý trung bình (ms).
+ * @param {number} sampleSize - Số lượng ticket hợp lệ tham gia tính trung bình.
+ * @returns {{sampleSize: number, milliseconds: number|null, minutes: number|null, hours: number|null}} Thời gian xử lý chuẩn hóa.
+ */
 export function formatAverageResolutionTime(
   averageMilliseconds,
   sampleSize,
@@ -151,6 +209,7 @@ export function formatAverageResolutionTime(
   const normalizedAverage = Number(averageMilliseconds);
   const normalizedSampleSize = Number(sampleSize);
 
+  // Nếu không có mẫu hợp lệ hoặc giá trị âm/NaN, trả về giá trị null cho các đơn vị thời gian
   if (
     !Number.isFinite(normalizedAverage) ||
     normalizedAverage < 0 ||
@@ -173,6 +232,14 @@ export function formatAverageResolutionTime(
   };
 }
 
+/**
+ * Gộp và chuẩn hóa các chỉ số tổng quan dashboard (tổng ticket, đang xử lý, hoàn thành, SLA trung bình, đánh giá sao).
+ *
+ * @param {Object} rawSummary - Số liệu đếm thô từ pipeline `$facet.summary`.
+ * @param {Object} resolutionStats - Thống kê thời gian xử lý trung bình từ `getResolutionStatistics`.
+ * @param {Object} [ratingStats={}] - Thống kê số lượt và điểm đánh giá trung bình.
+ * @returns {Object} Đối tượng summary chuẩn hóa cho Admin dashboard.
+ */
 export function normalizeDashboardSummary(
   rawSummary,
   resolutionStats,
@@ -198,6 +265,12 @@ export function normalizeDashboardSummary(
   };
 }
 
+/**
+ * Xác định khoảng thời gian 7 ngày gần nhất theo múi giờ Việt Nam (`+07:00`) tính đến ngày tham chiếu.
+ *
+ * @param {Date} referenceDate - Ngày tham chiếu hiện tại.
+ * @returns {{startDate: Date, endExclusiveDate: Date, from: string, to: string}} Khoảng thời gian truy vấn MongoDB.
+ */
 function getVietnamDateRange(referenceDate) {
   const todayKey = getDateKeyInTimeZone(
     referenceDate,
@@ -214,6 +287,13 @@ function getVietnamDateRange(referenceDate) {
   };
 }
 
+/**
+ * Chuyển đổi cặp khóa ngày bắt đầu và kết thúc (exclusive) thành đối tượng Date với múi giờ `+07:00`.
+ *
+ * @param {string} startKey - Ngày bắt đầu (`YYYY-MM-DD`).
+ * @param {string} endExclusiveKey - Ngày kết thúc mở (`YYYY-MM-DD`).
+ * @returns {{startDate: Date, endExclusiveDate: Date}} Cặp mốc Date dùng cho truy vấn `$gte` / `$lt`.
+ */
 function getDateRangeFromKeys(startKey, endExclusiveKey) {
   return {
     startDate: new Date(`${startKey}T00:00:00+07:00`),
@@ -221,9 +301,16 @@ function getDateRangeFromKeys(startKey, endExclusiveKey) {
   };
 }
 
+/**
+ * Tính các khung thời gian Hôm nay, Tuần này (từ Thứ 2) và Tháng này theo múi giờ Việt Nam cho Dashboard Kỹ thuật viên.
+ *
+ * @param {Date} referenceDate - Ngày tham chiếu.
+ * @returns {{today: Object, week: Object, month: Object}} Các khoảng thời gian lọc KPI của kỹ thuật viên.
+ */
 function getTechnicianDashboardRanges(referenceDate) {
   const todayKey = getDateKeyInTimeZone(referenceDate, DASHBOARD_TIME_ZONE);
   const utcDay = new Date(`${todayKey}T00:00:00Z`).getUTCDay();
+  // Quy đổi thứ trong tuần (Chủ nhật = 0 -> lùi 6 ngày về Thứ 2)
   const daysSinceMonday = utcDay === 0 ? 6 : utcDay - 1;
   const weekStartKey = shiftCalendarDateKey(todayKey, -daysSinceMonday);
   const monthStartKey = `${todayKey.slice(0, 7)}-01`;
@@ -245,6 +332,11 @@ function getTechnicianDashboardRanges(referenceDate) {
   };
 }
 
+/**
+ * Chạy aggregation `$facet` đơn trên collection `Ticket` để lấy đồng thời thống kê tổng, theo trạng thái và theo danh mục.
+ *
+ * @returns {Promise<Array>} Kết quả aggregation gồm `summary`, `byStatus`, `byCategory`.
+ */
 function getTicketSnapshot() {
   return Ticket.aggregate([
     {
@@ -293,6 +385,12 @@ function getTicketSnapshot() {
   ]);
 }
 
+/**
+ * Thống kê số ticket được tạo mới theo từng ngày trong khoảng thời gian chỉ định.
+ *
+ * @param {{startDate: Date, endExclusiveDate: Date}} range - Khoảng thời gian lọc `createdAt`.
+ * @returns {Promise<Array<{_id: string, value: number}>>} Dữ liệu số lượng theo ngày `YYYY-MM-DD`.
+ */
 function getTicketCreationTrend(range) {
   return Ticket.aggregate([
     {
@@ -319,6 +417,12 @@ function getTicketCreationTrend(range) {
   ]);
 }
 
+/**
+ * Thống kê số ticket đã hoàn thành (`resolved` hoặc `closed`) theo từng ngày giải quyết (`resolvedAt`).
+ *
+ * @param {{startDate: Date, endExclusiveDate: Date}} range - Khoảng thời gian lọc `resolvedAt`.
+ * @returns {Promise<Array<{_id: string, value: number}>>} Dữ liệu số lượng theo ngày `YYYY-MM-DD`.
+ */
 function getTicketResolutionTrend(range) {
   return Ticket.aggregate([
     { $match: { status: { $in: COMPLETED_STATUSES }, resolvedAt: { $gte: range.startDate, $lt: range.endExclusiveDate } } },
@@ -327,6 +431,11 @@ function getTicketResolutionTrend(range) {
   ]);
 }
 
+/**
+ * Tính tổng số lượt đánh giá và điểm đánh giá trung bình toàn hệ thống từ collection `Rating`.
+ *
+ * @returns {Promise<Array<{ratingCount: number, averageScore: number}>>} Kết quả aggregation điểm đánh giá.
+ */
 function getRatingStatistics() {
   return Rating.aggregate([
     {
@@ -340,6 +449,11 @@ function getRatingStatistics() {
   ]);
 }
 
+/**
+ * Tính thời gian giải quyết trung bình (SLA từ `createdAt` đến `resolvedAt`) trên các ticket đã hoàn thành hợp lệ.
+ *
+ * @returns {Promise<Array<{sampleSize: number, averageMilliseconds: number}>>} Kết quả aggregation thời gian xử lý trung bình.
+ */
 function getResolutionStatistics() {
   return Ticket.aggregate([
     {
@@ -348,6 +462,7 @@ function getResolutionStatistics() {
         resolvedAt: { $type: "date" },
       },
     },
+    // Chỉ tính các ticket có mốc resolvedAt >= createdAt để tránh sai số dữ liệu
     {
       $match: {
         $expr: { $gte: ["$resolvedAt", "$createdAt"] },
@@ -366,6 +481,13 @@ function getResolutionStatistics() {
   ]);
 }
 
+/**
+ * Ghép kết quả đếm ticket theo danh mục vào danh sách toàn bộ `Category`, gom ticket mồ côi vào nhóm "Không xác định".
+ *
+ * @param {Array} categories - Danh sách toàn bộ danh mục trong DB.
+ * @param {Array} categoryRows - Kết quả aggregation đếm theo `$category`.
+ * @returns {Array} Mảng thống kê danh mục sắp xếp theo số lượng giảm dần, rồi tên tiếng Việt.
+ */
 function mergeCategoryStatistics(categories, categoryRows) {
   const countByCategory = new Map(
     (categoryRows ?? []).map((row) => [String(row._id), Number(row.value)]),
@@ -375,6 +497,7 @@ function mergeCategoryStatistics(categories, categoryRows) {
   );
   let unknownCount = 0;
 
+  // Cộng dồn các ticket có category bị xóa hoặc rỗng vào nhóm "Không xác định"
   for (const row of categoryRows ?? []) {
     if (!row._id || !knownCategoryIds.has(String(row._id))) {
       unknownCount += Number(row.value ?? 0);
@@ -403,6 +526,11 @@ function mergeCategoryStatistics(categories, categoryRows) {
   );
 }
 
+/**
+ * Thống kê khối lượng công việc (đang xử lý / đã hoàn thành) của toàn bộ kỹ thuật viên.
+ *
+ * @returns {Promise<Array>} Danh sách hiệu suất kỹ thuật viên sắp xếp theo số lượng đang xử lý giảm dần.
+ */
 async function getTechnicianPerformance() {
   const [technicians, ticketStatistics] = await Promise.all([
     User.find({ role: "technician" })
@@ -459,6 +587,11 @@ async function getTechnicianPerformance() {
     );
 }
 
+/**
+ * Lấy 5 ticket mới nhất toàn hệ thống kèm nhãn trạng thái/độ ưu tiên tiếng Việt cho Admin dashboard.
+ *
+ * @returns {Promise<Array>} Danh sách 5 ticket mới nhất đã định dạng.
+ */
 async function getLatestTickets() {
   const tickets = await Ticket.find()
     .select(
@@ -496,6 +629,14 @@ async function getLatestTickets() {
   }));
 }
 
+/**
+ * Tổng hợp toàn bộ dữ liệu Dashboard cho Quản trị viên (KPI, biểu đồ xu hướng 7 ngày,
+ * phân bố danh mục/trạng thái, hiệu suất kỹ thuật viên và 5 ticket mới nhất).
+ *
+ * @param {Date|string|number} [referenceDate=new Date()] - Ngày tham chiếu để tính khoảng thống kê.
+ * @returns {Promise<Object>} Payload dữ liệu tổng quan Admin dashboard.
+ * @throws {TypeError} Nếu ngày tham chiếu không hợp lệ.
+ */
 export async function getAdminDashboard(referenceDate = new Date()) {
   const normalizedReferenceDate =
     referenceDate instanceof Date ? new Date(referenceDate) : new Date(referenceDate);
@@ -505,6 +646,7 @@ export async function getAdminDashboard(referenceDate = new Date()) {
   }
 
   const range = getVietnamDateRange(normalizedReferenceDate);
+  // Chạy song song toàn bộ các truy vấn aggregation và danh mục để tối ưu tốc độ tải dashboard
   const [
     snapshotResult,
     creationTrend,
@@ -583,6 +725,12 @@ const TECHNICIAN_PRIORITY_WEIGHT = Object.freeze({
   low: 3,
 });
 
+/**
+ * Chuẩn hóa đối tượng ticket cần xử lý cho danh sách công việc trên Dashboard Kỹ thuật viên.
+ *
+ * @param {Object} ticket - Document ticket lean đã populate `createdBy`.
+ * @returns {Object} Đối tượng ticket rút gọn hiển thị trên bảng việc cần làm.
+ */
 function serializeTechnicianWorkTicket(ticket) {
   return {
     id: ticket._id,
@@ -598,6 +746,14 @@ function serializeTechnicianWorkTicket(ticket) {
   };
 }
 
+/**
+ * Tổng hợp KPI xử lý ticket theo ngày/tuần/tháng và Top 5 ticket ưu tiên cho Kỹ thuật viên.
+ *
+ * @param {string|import("mongoose").Types.ObjectId} technicianId - ID tài khoản kỹ thuật viên.
+ * @param {Date|string|number} [referenceDate=new Date()] - Ngày tham chiếu tính mốc thời gian.
+ * @returns {Promise<Object>} Payload gồm `summary` (tỷ lệ hoàn thành, số lượng theo trạng thái) và `workTickets`.
+ * @throws {TypeError} Nếu ngày tham chiếu không hợp lệ.
+ */
 export async function getTechnicianDashboard(technicianId, referenceDate = new Date()) {
   const normalizedReferenceDate =
     referenceDate instanceof Date ? new Date(referenceDate) : new Date(referenceDate);
@@ -619,6 +775,7 @@ export async function getTechnicianDashboard(technicianId, referenceDate = new D
     resolvedAt: { $gte: ranges.month.startDate, $lt: ranges.month.endExclusiveDate },
   };
 
+  // Đếm song song tất cả các chỉ số KPI cá nhân và tải tối đa 30 ticket đang mở để xếp hạng ưu tiên
   const [
     assignedTickets,
     assignedToday,
@@ -656,10 +813,12 @@ export async function getTechnicianDashboard(technicianId, referenceDate = new D
       .lean(),
   ]);
 
+  // Tính tỷ lệ hoàn thành trong tháng (%)
   const completionRate =
     assignedThisMonth > 0
       ? Math.round((completedThisMonth / assignedThisMonth) * 100)
       : 0;
+  // Sắp xếp theo mức độ khẩn cấp (urgent -> low), cùng mức ưu tiên thì hoạt động mới nhất lên trước, lấy Top 5
   const priorityWorkTickets = workTickets
     .sort(
       (left, right) =>
@@ -689,6 +848,13 @@ export async function getTechnicianDashboard(technicianId, referenceDate = new D
   };
 }
 
+/**
+ * Tổng hợp thống kê ticket đã gửi và 5 ticket hoạt động gần nhất cho Người dùng cuối (`user`).
+ *
+ * @param {string|import("mongoose").Types.ObjectId} userId - ID người dùng cuối.
+ * @param {Date} [referenceDate=new Date()] - Ngày tham chiếu phản hồi.
+ * @returns {Promise<Object>} Payload gồm `summary` (tổng, đang xử lý, chờ phản hồi, hoàn thành) và `recentTickets`.
+ */
 export async function getUserDashboard(userId, referenceDate = new Date()) {
   const createdBy = userId;
   const [summaryRows, recentTickets] = await Promise.all([

@@ -1,3 +1,11 @@
+/**
+ * @file usbService.js
+ * @description Service xử lý nghiệp vụ lõi cho hệ thống giám sát và kiểm soát bảo mật thiết bị USB.
+ * Vai trò Service: Tiếp nhận và lưu trữ sự kiện cắm/rút USB từ Windows Agent (`UsbDevice`, `UsbEventLog`),
+ * đối chiếu chính sách bảo mật Whitelist (`trusted`) / Blacklist (`blocked`) / Chưa xác minh (`unverified`),
+ * đồng bộ danh sách chính sách cho Agent, thu thập thông tin IP mạng LAN máy chủ và tự động ánh xạ
+ * tên máy trạm (`hostname`) / tài khoản OS (`osUsername`) sang nhân viên chủ sở hữu thiết bị từ `Asset` & `User`.
+ */
 import os from "node:os";
 import { env } from "../config/env.js";
 import Asset from "../models/Asset.js";
@@ -6,11 +14,24 @@ import UsbEventLog from "../models/UsbEventLog.js";
 import User from "../models/User.js";
 import ApiError from "../utils/ApiError.js";
 
+/**
+ * Chuẩn hóa chuỗi khóa tra cứu bằng cách loại bỏ khoảng trắng thừa và chuyển về chữ thường.
+ *
+ * @param {*} value - Giá trị cần chuẩn hóa.
+ * @returns {string} Chuỗi khóa đã chuẩn hóa.
+ */
 function normalizeKey(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+/**
+ * Xây dựng bộ giải mã (`resolveHostOwner`) để tự động suy luận nhân viên chủ sở hữu máy trạm
+ * dựa trên dữ liệu thiết bị đang cấp phát (`Asset`) và danh sách tài khoản nhân viên (`User`).
+ *
+ * @returns {Promise<(hostname: string, osUsername: string) => Object|null>} Hàm tra cứu thông tin chủ sở hữu máy.
+ */
 async function buildHostOwnerResolver() {
+  // Truy vấn song song các thiết bị đang sử dụng và tài khoản nhân viên đang hoạt động
   const [activeAssets, activeUsers] = await Promise.all([
     Asset.find({ status: "in_use", assignedTo: { $ne: null } })
       .select("assetTag name serialNumber assignedTo")
@@ -24,6 +45,7 @@ async function buildHostOwnerResolver() {
   const byHostnameKey = new Map();
   const byEmailPrefix = new Map();
 
+  // Lập chỉ mục từ mã tài sản (assetTag), số serial và tên thiết bị sang chủ sở hữu
   for (const asset of activeAssets) {
     if (!asset.assignedTo) continue;
     const ownerInfo = {
@@ -44,6 +66,7 @@ async function buildHostOwnerResolver() {
     }
   }
 
+  // Lập chỉ mục dự phòng từ tiền tố email (phần trước '@') sang thông tin nhân viên và máy đang giữ
   for (const u of activeUsers) {
     const emailKey = normalizeKey(u.email?.split("@")[0]);
     if (emailKey && !byEmailPrefix.has(emailKey)) {
@@ -63,6 +86,7 @@ async function buildHostOwnerResolver() {
   }
 
   return function resolveHostOwner(hostname, osUsername) {
+    // Ưu tiên 1: Đối chiếu hostname của máy trạm với assetTag/serialNumber/tên thiết bị (khớp chính xác hoặc chuỗi con)
     const hostKey = normalizeKey(hostname);
     if (hostKey) {
       if (byHostnameKey.has(hostKey)) return byHostnameKey.get(hostKey);
@@ -73,6 +97,7 @@ async function buildHostOwnerResolver() {
       }
     }
 
+    // Ưu tiên 2: Nếu hostname không khớp thiết bị nào, đối chiếu osUsername với tiền tố email nhân viên
     const osKey = normalizeKey(osUsername);
     if (osKey && byEmailPrefix.has(osKey)) {
       return byEmailPrefix.get(osKey);
@@ -82,10 +107,22 @@ async function buildHostOwnerResolver() {
   };
 }
 
+/**
+ * Thoát các ký tự đặc biệt trong chuỗi trước khi khởi tạo RegExp tìm kiếm.
+ *
+ * @param {string} str - Chuỗi tìm kiếm thô.
+ * @returns {string} Chuỗi đã escape an toàn.
+ */
 function escapeRegex(str) {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Chuẩn hóa địa chỉ IP từ request Express (quy đổi loopback IPv6 `::1` và bỏ tiền tố `::ffff:`).
+ *
+ * @param {string|undefined} rawIp - Địa chỉ IP thô từ HTTP request.
+ * @returns {string} Địa chỉ IPv4 đã làm sạch.
+ */
 function cleanIp(rawIp) {
   if (!rawIp) return "127.0.0.1";
   const str = String(rawIp).trim();
@@ -94,10 +131,16 @@ function cleanIp(rawIp) {
   return str;
 }
 
+/**
+ * Quét các giao diện mạng nội bộ của máy chủ để trả về danh sách địa chỉ IP LAN và URL cấu hình cho USB Agent.
+ *
+ * @returns {Object} Thông tin `serverHostname`, `port`, `primaryLanIp`, URL máy chủ/web và danh sách `lanAddresses`.
+ */
 export function getServerNetworkInfo() {
   const interfaces = os.networkInterfaces();
   const lanAddresses = [];
 
+  // Lọc các interface IPv4 vật lý/LAN hợp lệ (loại bỏ loopback nội bộ và địa chỉ APIPA 169.254.x.x)
   for (const [interfaceName, nets] of Object.entries(interfaces)) {
     for (const net of nets || []) {
       if (
@@ -128,18 +171,30 @@ export function getServerNetworkInfo() {
   };
 }
 
+/**
+ * Ghi nhận sự kiện cắm (`connected`) hoặc rút (`disconnected`) thiết bị USB do Agent gửi lên.
+ * Tự động tạo mới thiết bị USB ở trạng thái `unverified` nếu lần đầu phát hiện hoặc cập nhật trạng thái
+ * kết nối gần nhất, lưu lịch sử `UsbEventLog` và xác định mức độ cảnh báo theo chính sách hiện tại.
+ *
+ * @param {Object} payload - Dữ liệu sự kiện từ USB Agent (`deviceId`, `deviceName`, `eventType`, `hostname`,...).
+ * @param {string} requestIp - Địa chỉ IP của kết nối HTTP gửi yêu cầu.
+ * @returns {Promise<{device: Object, eventLog: Object, isNewDevice: boolean, alertLevel: string}>} Kết quả ghi nhận và mức cảnh báo.
+ */
 export async function recordAgentUsbEvent(payload, requestIp) {
   const now = new Date();
+  // Ưu tiên IP LAN do Agent tự khai báo; nếu là loopback thì fallback sang IP trích xuất từ request
   const resolvedIp =
     payload.ipAddress && payload.ipAddress !== "127.0.0.1"
       ? payload.ipAddress
       : cleanIp(requestIp);
 
+  // Chuẩn hóa deviceId về chữ hoa để làm khóa định danh duy nhất
   const normalizedDeviceId = payload.deviceId.trim().toUpperCase();
   let device = await UsbDevice.findOne({ deviceId: normalizedDeviceId });
   let isNewDevice = false;
 
   if (!device) {
+    // Thiết bị USB xuất hiện lần đầu: khởi tạo với trạng thái mặc định "unverified" để chờ duyệt
     isNewDevice = true;
     device = await UsbDevice.create({
       deviceId: normalizedDeviceId,
@@ -161,6 +216,7 @@ export async function recordAgentUsbEvent(payload, requestIp) {
       connectionCount: 1,
     });
   } else {
+    // Thiết bị đã biết: cập nhật thông tin phần cứng bổ sung, trạng thái kết nối và host gần nhất
     device.deviceName = payload.deviceName || device.deviceName;
     if (payload.vendor) device.vendor = payload.vendor;
     if (payload.serialNumber) device.serialNumber = payload.serialNumber;
@@ -190,6 +246,7 @@ export async function recordAgentUsbEvent(payload, requestIp) {
     await device.save();
   }
 
+  // Lưu bản ghi nhật ký sự kiện kèm snapshot trạng thái chính sách của thiết bị tại thời điểm xảy ra
   const eventLog = await UsbEventLog.create({
     usbDevice: device._id,
     deviceId: device.deviceId,
@@ -212,6 +269,7 @@ export async function recordAgentUsbEvent(payload, requestIp) {
     { path: "reviewedBy", select: "fullName email role" },
   ]);
 
+  // Đối chiếu trạng thái chính sách thiết bị để xác định mức độ cảnh báo realtime
   let alertLevel = "info";
   if (device.status === "blocked") {
     alertLevel = "critical";
@@ -227,6 +285,11 @@ export async function recordAgentUsbEvent(payload, requestIp) {
   };
 }
 
+/**
+ * Lấy danh sách chính sách USB rút gọn (`deviceId`, `deviceName`, `status`) để USB Agent đồng bộ.
+ *
+ * @returns {Promise<Array<{deviceId: string, deviceName: string, status: string}>>} Danh sách chính sách thiết bị.
+ */
 export async function listAgentUsbPolicies() {
   const devices = await UsbDevice.find({})
     .select("deviceId deviceName status")
@@ -239,6 +302,13 @@ export async function listAgentUsbPolicies() {
   }));
 }
 
+/**
+ * Lấy dữ liệu tổng hợp cho Dashboard giám sát USB gồm danh sách thiết bị, 100 nhật ký sự kiện gần nhất,
+ * thông tin nhân viên chủ sở hữu máy (`hostOwner`), thống kê số lượng theo chính sách và thông tin mạng LAN.
+ *
+ * @param {Object} [query={}] - Tham số lọc (`status`, `deviceType`, `connectionState`, `eventType`, `search`).
+ * @returns {Promise<{devices: Array, events: Array, summary: Object, networkInfo: Object}>} Dữ liệu dashboard USB.
+ */
 export async function listUsbDashboardData(query = {}) {
   const deviceFilter = {};
   const eventFilter = {};
@@ -263,6 +333,7 @@ export async function listUsbDashboardData(query = {}) {
     eventFilter.eventType = query.eventType;
   }
 
+  // Áp dụng bộ lọc tìm kiếm theo tên/hãng/ID thiết bị USB, hostname, tài khoản OS hoặc IP
   if (query.search) {
     const regex = new RegExp(escapeRegex(query.search), "i");
     deviceFilter.$or = [
@@ -284,6 +355,7 @@ export async function listUsbDashboardData(query = {}) {
     ];
   }
 
+  // Truy vấn song song danh sách thiết bị đã lọc, nhật ký sự kiện, toàn bộ thiết bị cho summary và bộ giải mã chủ sở hữu máy
   const [devices, events, allDevices, totalEvents, resolveHostOwner] = await Promise.all([
     UsbDevice.find(deviceFilter)
       .populate("assignedUser", "fullName email department role")
@@ -299,6 +371,7 @@ export async function listUsbDashboardData(query = {}) {
     buildHostOwnerResolver(),
   ]);
 
+  // Map nhân viên chủ sở hữu máy (hostOwner) cho từng thiết bị USB (ưu tiên gán thủ công, fallback suy luận theo hostname/osUsername)
   const deviceOwnerByDeviceId = new Map();
   const enrichedDevices = devices.map((device) => {
     const hostOwner =
@@ -313,6 +386,7 @@ export async function listUsbDashboardData(query = {}) {
     };
   });
 
+  // Gắn thông tin hostOwner tương ứng vào từng dòng nhật ký sự kiện
   const enrichedEvents = events.map((evt) => {
     const hostOwner =
       deviceOwnerByDeviceId.get(evt.deviceId) ||
@@ -323,6 +397,7 @@ export async function listUsbDashboardData(query = {}) {
     };
   });
 
+  // Tính toán các chỉ số thống kê tổng quan cho toàn bộ hệ thống USB
   let currentlyConnected = 0;
   let unverifiedCount = 0;
   let trustedCount = 0;
@@ -356,6 +431,16 @@ export async function listUsbDashboardData(query = {}) {
   };
 }
 
+/**
+ * Cập nhật chính sách bảo mật (Whitelist `trusted` / Blacklist `blocked` / `unverified`),
+ * nhân viên sở hữu hoặc ghi chú cho một thiết bị USB.
+ *
+ * @param {string|import("mongoose").Types.ObjectId} usbId - ID bản ghi thiết bị USB.
+ * @param {Object} payload - Payload cập nhật (`status`, `assignedUser`, `note`).
+ * @param {string|import("mongoose").Types.ObjectId} reviewerId - ID quản trị/kỹ thuật viên xét duyệt.
+ * @returns {Promise<Object>} Thông tin thiết bị USB sau cập nhật đã populate.
+ * @throws {ApiError} Lỗi 404 nếu không tìm thấy thiết bị USB hoặc nhân viên được gán không tồn tại.
+ */
 export async function updateUsbDevicePolicy(usbId, payload, reviewerId) {
   const device = await UsbDevice.findById(usbId);
   if (!device) {
@@ -390,13 +475,20 @@ export async function updateUsbDevicePolicy(usbId, payload, reviewerId) {
   return device.toObject();
 }
 
+/**
+ * Xóa bản ghi thiết bị USB khỏi cơ sở dữ liệu và xóa toàn bộ lịch sử sự kiện `UsbEventLog` liên quan.
+ *
+ * @param {string|import("mongoose").Types.ObjectId} usbId - ID bản ghi thiết bị USB cần xóa.
+ * @returns {Promise<Object>} Đối tượng thiết bị USB đã xóa.
+ * @throws {ApiError} Lỗi 404 nếu không tìm thấy thiết bị USB.
+ */
 export async function deleteUsbDevice(usbId) {
   const device = await UsbDevice.findByIdAndDelete(usbId);
   if (!device) {
     throw new ApiError(404, "Không tìm thấy thiết bị USB cần xóa.");
   }
 
+  // Dọn dẹp toàn bộ nhật ký sự kiện gắn với thiết bị vừa xóa
   await UsbEventLog.deleteMany({ usbDevice: device._id });
   return device.toObject();
 }
-

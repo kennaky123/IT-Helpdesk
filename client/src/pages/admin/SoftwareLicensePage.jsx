@@ -1,3 +1,13 @@
+/**
+ * Trang Quản Lý Bản Quyền Phần Mềm & Chi Phí CNTT (Software Asset Management & FinOps).
+ *
+ * Vai trò trong hệ thống IT Helpdesk:
+ * - Đối với Admin / Kỹ thuật viên: quản lý danh sách phần mềm bản quyền (SaaS, Vĩnh viễn, Volume, OEM),
+ *   theo dõi số lượng seat đã cấp phát/còn trống, cảnh báo sắp hết hạn, kiểm soát chi phí FinOps
+ *   và thực hiện cấp phát/thu hồi bản quyền cho nhân viên.
+ * - Đối với Nhân viên (role "user"): hiển thị góc nhìn "Bản Quyền Phần Mềm Của Tôi"
+ *   đồng bộ theo thiết bị đang sử dụng.
+ */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -25,6 +35,7 @@ import {
   getSoftwareLicenses,
 } from "../../services/softwareService.js";
 
+// Danh sách nhóm danh mục phần mềm dùng cho bộ lọc tìm kiếm
 const CATEGORIES = [
   "Văn phòng & Email",
   "Thiết kế & Đồ họa",
@@ -35,6 +46,7 @@ const CATEGORIES = [
   "Khác",
 ];
 
+// Danh sách các hình thức cấp phép phần mềm hỗ trợ lọc
 const TYPES = [
   { value: "saas_subscription", label: "SaaS Cloud" },
   { value: "perpetual", label: "Vĩnh Viễn" },
@@ -42,32 +54,42 @@ const TYPES = [
   { value: "oem", label: "OEM Bản Quyền" },
 ];
 
+// Danh sách các trạng thái hiệu lực bản quyền để lọc trên giao diện
 const STATUSES = [
   { value: "active", label: "Đang Hoạt Động" },
   { value: "expiring_soon", label: "Sắp Hết Hạn" },
   { value: "expired", label: "Đã Hết Hạn" },
 ];
 
+/**
+ * Component chính của trang Quản lý bản quyền phần mềm và chi phí FinOps.
+ * Hỗ trợ phân quyền hiển thị giữa Admin, Kỹ thuật viên và Nhân viên.
+ */
 function SoftwareLicensePage() {
+  // Client React Query phục vụ invalidate toàn bộ cache nhánh ["software"]
   const queryClient = useQueryClient();
+  // Xác định vai trò người dùng hiện tại để điều chỉnh giao diện và quyền gọi API FinOps
   const { user } = useAuth();
   const role = user?.role || "admin";
   const isUserRole = role === "user";
   const isAdmin = role === "admin";
 
   // Filters
+  // Các state lưu trữ tiêu chí tìm kiếm và bộ lọc gửi lên API danh sách bản quyền
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
   // Modals state
+  // Các state quản lý modal thêm/sửa bản quyền, cấp phát seat, drawer danh sách người dùng và xác nhận xóa
   const [formLicense, setFormLicense] = useState(null); // null = closed, {} = create, obj = edit
   const [allocateTarget, setAllocateTarget] = useState(null);
   const [viewUsersTargetId, setViewUsersTargetId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Luồng lấy dữ liệu 1: truy vấn danh sách bản quyền phần mềm theo từ khóa và bộ lọc hiện hành
   const licensesQuery = useQuery({
     queryKey: [
       "software",
@@ -86,12 +108,14 @@ function SoftwareLicensePage() {
       ),
   });
 
+  // Luồng lấy dữ liệu 2: truy vấn báo cáo tổng hợp chi phí FinOps (tắt đối với vai trò user thường)
   const finOpsQuery = useQuery({
     queryKey: ["software", "finops"],
     queryFn: ({ signal }) => getFinOpsSummary({ signal }),
     enabled: !isUserRole,
   });
 
+  // Hiển thị toast thông báo nếu tải danh sách bản quyền hoặc dữ liệu FinOps gặp lỗi
   useEffect(() => {
     const error = licensesQuery.error || (!isUserRole ? finOpsQuery.error : null);
     if (error) {
@@ -101,16 +125,21 @@ function SoftwareLicensePage() {
     }
   }, [licensesQuery.error, finOpsQuery.error, isUserRole]);
 
+  // Trích xuất dữ liệu và tính số lượng bản quyền hợp lệ / cần chú ý cho thẻ thống kê của user
   const licenses = licensesQuery.data?.licenses || [];
   const finOps = finOpsQuery.data || {};
   const isLoading = licensesQuery.isLoading || licensesQuery.isFetching;
   const activeLicensesCount = licenses.filter((lic) => lic.status === "active").length;
   const attentionLicensesCount = licenses.filter((lic) => lic.status !== "active").length;
 
+  // Làm mới đồng thời cache danh sách bản quyền và báo cáo FinOps dưới nhánh key ["software"]
   const refreshData = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["software"] });
   }, [queryClient]);
 
+  /**
+   * Xử lý xác nhận xóa vĩnh viễn gói bản quyền phần mềm khỏi hệ thống và làm mới cache.
+   */
   async function handleDeleteConfirm() {
     if (!deleteTarget) return;
     setIsDeleting(true);
@@ -126,8 +155,12 @@ function SoftwareLicensePage() {
     }
   }
 
+  // Kiểm tra xem có bất kỳ bộ lọc hoặc từ khóa tìm kiếm nào đang được áp dụng hay không
   const isFilterActive = Boolean(search || categoryFilter || typeFilter || statusFilter);
 
+  /**
+   * Đặt lại toàn bộ bộ lọc tìm kiếm phần mềm về trạng thái mặc định ban đầu.
+   */
   function handleResetFilters() {
     setSearch("");
     setCategoryFilter("");
@@ -138,6 +171,7 @@ function SoftwareLicensePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
+      {/* Tiêu đề trang thích ứng theo vai trò nhân viên (user) hoặc quản trị (admin/technician) */}
       <WorkspacePageHeader
         eyebrow={
           isUserRole
@@ -179,6 +213,7 @@ function SoftwareLicensePage() {
       />
 
       {/* Summary Cards */}
+      {/* Thẻ tóm tắt: hiển thị thẻ thống kê cá nhân cho user hoặc bảng phân tích FinOps cho Admin/IT */}
       {isUserRole ? (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           <WorkspaceStatCard
@@ -208,6 +243,7 @@ function SoftwareLicensePage() {
       )}
 
       {/* Filter and Search Bar */}
+      {/* Thanh tìm kiếm và lọc bản quyền theo danh mục, hình thức cấp phép và trạng thái */}
       <div className="bg-white rounded-2xl border border-brand-bone p-4 shadow-xs space-y-3">
         <div className="flex flex-col md:flex-row gap-3">
           {/* Search box */}
@@ -286,6 +322,7 @@ function SoftwareLicensePage() {
       </div>
 
       {/* Main Table Card */}
+      {/* Bảng hiển thị chi tiết danh sách bản quyền phần mềm */}
       <div className="bg-white rounded-2xl border border-brand-bone shadow-xs overflow-hidden">
         <SoftwareTable
           licenses={licenses}
@@ -299,6 +336,7 @@ function SoftwareLicensePage() {
       </div>
 
       {/* Modals & Drawers */}
+      {/* Modal thêm mới hoặc chỉnh sửa thông tin bản quyền */}
       {formLicense && (
         <SoftwareFormModal
           license={formLicense._id ? formLicense : null}
@@ -310,6 +348,7 @@ function SoftwareLicensePage() {
         />
       )}
 
+      {/* Modal cấp phát seat bản quyền phần mềm cho nhân viên */}
       {allocateTarget && (
         <AllocateLicenseModal
           license={allocateTarget}
@@ -321,6 +360,7 @@ function SoftwareLicensePage() {
         />
       )}
 
+      {/* Drawer xem và thu hồi seat của các nhân viên đang được cấp bản quyền */}
       {viewUsersTargetId && (
         <AllocatedUsersDrawer
           licenseId={viewUsersTargetId}
@@ -331,6 +371,7 @@ function SoftwareLicensePage() {
         />
       )}
 
+      {/* Modal xác nhận xóa vĩnh viễn gói bản quyền */}
       {deleteTarget && (
         <ConfirmActionModal
           title={`Xác Nhận Xóa Bản Quyền "${deleteTarget.name}"?`}

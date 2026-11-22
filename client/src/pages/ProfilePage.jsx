@@ -1,3 +1,12 @@
+/**
+ * @file ProfilePage.jsx
+ * @description Trang Hồ sơ cá nhân & Bảo mật cho phép người dùng quản lý ảnh đại diện, thông tin liên hệ, đổi mật khẩu và xem danh sách bản quyền phần mềm được cấp phát.
+ * @role Tất cả người dùng đã đăng nhập (User / Technician / Admin).
+ * @flow
+ * 1. Đọc thông tin `user` hiện tại từ `useAuth()` để điền sẵn vào form hồ sơ và đồng bộ lại phiên khi cập nhật thành công.
+ * 2. Tải danh sách license phần mềm qua React Query (`getSoftwareLicenses`) và lọc các bản quyền đã cấp cho `user._id`.
+ * 3. Xử lý upload ảnh đại diện (validate JPEG/PNG/WebP và <= 5MB), cập nhật hồ sơ (`fullName`, `phone`, `department`), đổi mật khẩu và sao chép License Key.
+ */
 import { useQuery } from "@tanstack/react-query";
 import {
   AppWindow,
@@ -31,42 +40,58 @@ import { getAvatarUrl, getInitials } from "../utils/adminUserFormatters.js";
 import { copyTextToClipboard } from "../utils/clipboard.js";
 import { formatTicketDateTime } from "../utils/ticketPermissions.js";
 
+// Class Tailwind dùng chung cho các ô input trong form thông tin cá nhân và đổi mật khẩu
 const inputClass =
   "mt-1.5 w-full rounded-xl border border-brand-bone bg-brand-mist px-3.5 py-2.5 text-xs font-medium text-brand-ink outline-none transition focus:border-brand-violet focus:bg-white disabled:opacity-60";
 
+// Bộ định dạng tháng/năm theo chuẩn Việt Nam (múi giờ Asia/Ho_Chi_Minh) cho mốc thời gian tham gia
 const dateFormatter = new Intl.DateTimeFormat("vi-VN", {
   month: "2-digit",
   year: "numeric",
   timeZone: "Asia/Ho_Chi_Minh",
 });
 
+/**
+ * Component trang Hồ sơ cá nhân & Bảo mật.
+ * Quản lý đồng thời 3 luồng tương tác: cập nhật avatar + thông tin cá nhân, đổi mật khẩu và hiển thị bản quyền phần mềm được cấp.
+ */
 function ProfilePage() {
+  // Lấy thông tin người dùng hiện tại và hàm cập nhật session AuthContext sau khi lưu thay đổi
   const { user, updateUserSession } = useAuth();
+  // Ref trỏ đến thẻ input file ẩn để kích hoạt chọn ảnh khi bấm nút camera trên avatar
   const avatarInputRef = useRef(null);
+  // Trạng thái đang tải lên ảnh đại diện mới
   const [avatarSubmitting, setAvatarSubmitting] = useState(false);
 
+  // State form thông tin cá nhân, khởi tạo từ dữ liệu user hiện tại (email chỉ hiển thị, không cho chỉnh sửa)
   const [profileForm, setProfileForm] = useState({
     fullName: user?.fullName ?? "",
     email: user?.email ?? "",
     phone: user?.phone ?? "",
     department: user?.department ?? "",
   });
+  // Trạng thái đang gửi yêu cầu cập nhật thông tin cá nhân
   const [profileSubmitting, setProfileSubmitting] = useState(false);
 
+  // State form đổi mật khẩu gồm mật khẩu hiện tại, mật khẩu mới và xác nhận mật khẩu mới
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
     confirmNewPassword: "",
   });
+  // Trạng thái đang gửi yêu cầu đổi mật khẩu
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  // Lưu ID bản quyền vừa được sao chép key để hiển thị trạng thái "Đã chép" tạm thời
   const [copiedLicenseId, setCopiedLicenseId] = useState(null);
 
+  // React Query tải danh sách bản quyền phần mềm (chỉ chạy khi đã xác định được user._id)
   const softwareQuery = useQuery({
     queryKey: ["software", "list", "profile", user?._id],
     queryFn: ({ signal }) => getSoftwareLicenses({}, { signal }),
     enabled: Boolean(user?._id),
   });
 
+  // Lọc ra các bản quyền phần mềm có phân bổ (assignedUsers) khớp với ID của người dùng đang đăng nhập
   const currentUserId = user?._id ? String(user._id) : "";
   const allocatedLicenses = (softwareQuery.data?.licenses ?? [])
     .map((lic) => {
@@ -78,6 +103,7 @@ function ProfilePage() {
     })
     .filter(Boolean);
 
+  // Xác định đường dẫn trang "Xem chi tiết" bản quyền phần mềm theo vai trò (role) của tài khoản
   const softwarePath =
     user?.role === "user"
       ? "/user/software"
@@ -85,6 +111,9 @@ function ProfilePage() {
         ? "/technician/software"
         : "/admin/software";
 
+  /**
+   * Sao chép License Key vào clipboard, bật phản hồi trực quan trong 2 giây và thông báo toast.
+   */
   async function handleCopyLicenseKey(license) {
     if (!license.licenseKey) return;
     try {
@@ -99,14 +128,24 @@ function ProfilePage() {
     }
   }
 
+  /**
+   * Cập nhật giá trị từng trường trong state form thông tin cá nhân.
+   */
   function updateProfileField(name, value) {
     setProfileForm((current) => ({ ...current, [name]: value }));
   }
 
+  /**
+   * Cập nhật giá trị từng trường trong state form đổi mật khẩu.
+   */
   function updatePasswordField(name, value) {
     setPasswordForm((current) => ({ ...current, [name]: value }));
   }
 
+  /**
+   * Event handler xử lý thay đổi ảnh đại diện:
+   * kiểm tra định dạng ảnh (JPEG/PNG/WebP) và dung lượng tối đa 5MB trước khi gọi API upload.
+   */
   async function handleAvatarChange(event) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -138,6 +177,10 @@ function ProfilePage() {
     }
   }
 
+  /**
+   * Event handler xử lý submit form cập nhật thông tin cá nhân (`fullName`, `phone`, `department`).
+   * Đồng bộ lại phiên đăng nhập sau khi server lưu thành công.
+   */
   async function handleProfileSubmit(event) {
     event.preventDefault();
     setProfileSubmitting(true);
@@ -161,6 +204,10 @@ function ProfilePage() {
     }
   }
 
+  /**
+   * Event handler xử lý submit form đổi mật khẩu.
+   * Kiểm tra mật khẩu xác nhận khớp phía client, gọi API đổi mật khẩu, đồng bộ session và xóa trắng form.
+   */
   async function handlePasswordSubmit(event) {
     event.preventDefault();
 
@@ -196,6 +243,7 @@ function ProfilePage() {
     }
   }
 
+  // Ánh xạ role kỹ thuật sang nhãn tiếng Việt hiển thị trên thẻ hồ sơ
   const roleLabel =
     user?.role === "admin"
       ? "Quản trị viên IT"
@@ -203,10 +251,12 @@ function ProfilePage() {
         ? "Kỹ thuật viên IT"
         : "Nhân viên nội bộ";
 
+  // Định dạng tháng/năm tham gia hệ thống (mặc định fallback "05/2025" nếu thiếu createdAt)
   const memberSince = user?.createdAt
     ? dateFormatter.format(new Date(user.createdAt))
     : "05/2025";
 
+  // Tạo URL hiển thị ảnh đại diện (trả về null nếu chưa có để render chữ viết tắt tên)
   const avatarUrl = getAvatarUrl(user?.avatar);
 
   return (
@@ -218,6 +268,7 @@ function ProfilePage() {
       />
 
       <div className="grid gap-6 xl:grid-cols-[20rem_minmax(0,1fr)]">
+        {/* Cột trái: Thẻ thông tin tóm tắt tài khoản, vai trò và chức năng tải lên ảnh đại diện */}
         <aside className="rounded-xl border border-brand-bone bg-white p-6 text-center shadow-xs">
           <div className="relative mx-auto w-fit">
             <input
@@ -274,6 +325,7 @@ function ProfilePage() {
         </aside>
 
         <div className="space-y-6">
+          {/* Form 1: Cập nhật thông tin cá nhân (họ tên, SĐT, phòng ban; trường email bị vô hiệu hóa không cho sửa) */}
           <form
             onSubmit={handleProfileSubmit}
             className="overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs"
@@ -364,6 +416,7 @@ function ProfilePage() {
             </div>
           </form>
 
+          {/* Form 2: Đổi mật khẩu đăng nhập (kiểm tra độ dài >= 8 ký tự và khớp mật khẩu xác nhận trước khi gửi API) */}
           <form
             onSubmit={handlePasswordSubmit}
             className="overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs"
@@ -438,6 +491,7 @@ function ProfilePage() {
             </div>
           </form>
 
+          {/* Khối 3: Danh sách bản quyền phần mềm đã cấp cho tài khoản, hỗ trợ sao chép Key và mở trang Portal/Chi tiết theo role */}
           <section className="overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-brand-bone px-5 py-4">
               <div>

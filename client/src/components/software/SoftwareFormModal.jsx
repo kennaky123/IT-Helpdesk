@@ -1,8 +1,23 @@
+/**
+ * @fileoverview Modal biểu mẫu tạo mới hoặc cập nhật gói bản quyền phần mềm (Software FinOps).
+ *
+ * Mục đích & vai trò:
+ * - Thuộc phân hệ Software FinOps, hỗ trợ 2 chế độ hoạt động: Thêm mới khi `license` rỗng
+ *   và Chỉnh sửa khi `license._id` tồn tại.
+ * - Cho phép khai báo thông tin gói phần mềm, hãng cung cấp, hình thức cấp phép,
+ *   số lượng seat, đơn giá & chu kỳ tính phí FinOps, ngày mua/hết hạn, License Key và Portal URL.
+ *
+ * Props:
+ * - `license` {Object|null}: Dữ liệu bản quyền cần sửa (hoặc `null`/`undefined` khi tạo mới).
+ * - `onClose` {Function}: Callback đóng modal.
+ * - `onSaved` {Function}: Callback trả về bản quyền vừa tạo/cập nhật sau khi lưu thành công.
+ */
 import { useState } from "react";
 import { AppWindow, Save, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { createSoftwareLicense, updateSoftwareLicense } from "../../services/softwareService.js";
 
+// Danh sách nhóm phân loại phần mềm trong doanh nghiệp
 const CATEGORIES = [
   "Văn phòng & Email",
   "Thiết kế & Đồ họa",
@@ -13,6 +28,7 @@ const CATEGORIES = [
   "Khác",
 ];
 
+// Danh sách hình thức cấp phép bản quyền (ánh xạ giá trị lưu DB sang nhãn tiếng Việt)
 const TYPES = [
   { value: "saas_subscription", label: "Thuê bao định kỳ (SaaS Cloud)" },
   { value: "perpetual", label: "Mua đứt vĩnh viễn (Perpetual)" },
@@ -20,15 +36,21 @@ const TYPES = [
   { value: "oem", label: "Bản quyền gắn liền phần cứng (OEM)" },
 ];
 
+// Danh sách chu kỳ thanh toán phục vụ tính toán chi phí FinOps hàng tháng
 const CYCLES = [
   { value: "monthly", label: "Hàng tháng (Monthly)" },
   { value: "yearly", label: "Hàng năm (Yearly)" },
   { value: "one_time", label: "Một lần duy nhất (One-time)" },
 ];
 
+/**
+ * Component modal nhập liệu tạo mới / cập nhật thông tin bản quyền phần mềm.
+ */
 function SoftwareFormModal({ license, onClose, onSaved }) {
+  // Xác định chế độ chỉnh sửa nếu đã có ID bản quyền
   const isEdit = Boolean(license?._id);
 
+  // State lưu toàn bộ trường dữ liệu form; cắt chuỗi ISO YYYY-MM-DD cho input date
   const [formData, setFormData] = useState({
     name: license?.name || "",
     vendor: license?.vendor || "",
@@ -45,13 +67,16 @@ function SoftwareFormModal({ license, onClose, onSaved }) {
     notes: license?.notes || "",
   });
 
+  // Cờ ngăn gửi trùng request khi form đang lưu
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Cập nhật từng trường dữ liệu form theo thuộc tính name của input/select/textarea
   function handleChange(e) {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   }
 
+  // Validate dữ liệu, chuẩn hóa payload và gọi API tạo mới hoặc cập nhật bản quyền
   async function handleSubmit(e) {
     e.preventDefault();
     if (!formData.name.trim() || !formData.vendor.trim()) {
@@ -61,6 +86,7 @@ function SoftwareFormModal({ license, onClose, onSaved }) {
 
     setIsSubmitting(true);
     try {
+      // Chuẩn hóa kiểu dữ liệu số, ngày tháng và giá trị null cho các trường tùy chọn để trống
       const payload = {
         ...formData,
         name: formData.name.trim(),
@@ -97,6 +123,7 @@ function SoftwareFormModal({ license, onClose, onSaved }) {
       }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
     >
+      {/* Hộp thoại form thêm mới / chỉnh sửa thông tin gói phần mềm */}
       <div className="w-full max-w-2xl bg-white rounded-2xl border border-brand-bone shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50 shrink-0">

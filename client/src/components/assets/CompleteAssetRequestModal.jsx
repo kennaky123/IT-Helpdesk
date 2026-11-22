@@ -1,15 +1,33 @@
+/**
+ * Modal hoàn tất yêu cầu cấp phát thiết bị từ kho trong module quản lý tài sản (Asset).
+ * Tự động lọc danh sách thiết bị đang ở trạng thái "in_stock" khớp với loại thiết bị được yêu cầu,
+ * cho phép Admin/Kỹ thuật viên chọn máy cụ thể, nhập ghi chú bàn giao và xác nhận xuất kho.
+ *
+ * Props:
+ * - request: Đối tượng yêu cầu cấp phát cần xử lý bàn giao.
+ * - onClose: Callback đóng modal.
+ * - onCompleted: Callback(completed) được gọi sau khi xuất kho và bàn giao hoàn tất.
+ */
 import { useEffect, useState } from "react";
 import { CheckCircle2, Laptop, PackageCheck, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { completeAssetRequest, getAssets } from "../../services/assetService.js";
 
+/**
+ * Component modal xuất kho thiết bị để hoàn thành yêu cầu cấp phát.
+ */
 function CompleteAssetRequestModal({ request, onClose, onCompleted }) {
+  // Danh sách thiết bị sẵn sàng trong kho khớp loại yêu cầu
   const [stockAssets, setStockAssets] = useState([]);
+  // ID thiết bị trong kho được chọn để bàn giao
   const [selectedAssetId, setSelectedAssetId] = useState("");
+  // Ghi chú đính kèm khi xuất kho bàn giao
   const [note, setNote] = useState("");
+  // Trạng thái đang tải danh sách kho và trạng thái đang gửi API hoàn tất
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Effect tải danh sách thiết bị trong kho (status: "in_stock") đúng với request.assetType
   useEffect(() => {
     const controller = new AbortController();
     getAssets(
@@ -27,8 +45,10 @@ function CompleteAssetRequestModal({ request, onClose, onCompleted }) {
     return () => controller.abort();
   }, [request.assetType]);
 
+  // Handler kiểm tra đã chọn thiết bị và gọi API hoàn tất yêu cầu cấp phát
   async function handleSubmit(e) {
     e.preventDefault();
+    // Validate bắt buộc chọn 1 máy từ kho trước khi xuất bàn giao
     if (!selectedAssetId) {
       toast.warning("Vui lòng chọn 1 thiết bị từ kho để bàn giao.");
       return;
@@ -54,11 +74,13 @@ function CompleteAssetRequestModal({ request, onClose, onCompleted }) {
   return (
     <div
       onClick={(e) => {
+        // Chỉ cho phép đóng modal khi click ra ngoài và không đang submit
         if (e.target === e.currentTarget && !isSubmitting) onClose();
       }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
     >
       <div className="w-full max-w-lg bg-white rounded-2xl border border-brand-bone shadow-2xl overflow-hidden">
+        {/* Đầu modal hiển thị mã yêu cầu cấp phát */}
         <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
@@ -82,8 +104,10 @@ function CompleteAssetRequestModal({ request, onClose, onCompleted }) {
           </button>
         </div>
 
+        {/* Biểu mẫu chọn máy trong kho và xác nhận bàn giao */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {/* Request summary */}
+          {/* Khung tóm tắt thông tin nhân viên nhận và loại thiết bị yêu cầu */}
           <div className="rounded-xl border border-brand-bone bg-brand-mist/60 p-3.5 space-y-1.5 text-xs">
             <div className="flex justify-between">
               <span className="text-brand-slate">Nhân viên tiếp nhận:</span>
@@ -105,6 +129,7 @@ function CompleteAssetRequestModal({ request, onClose, onCompleted }) {
             )}
           </div>
 
+          {/* Danh sách chọn thiết bị khả dụng trong kho */}
           <div>
             <label className="block text-xs font-semibold text-brand-ink mb-1.5">
               Chọn Thiết Bị Sẵn Sàng Trong Kho <span className="text-red-500">*</span>
@@ -137,6 +162,7 @@ function CompleteAssetRequestModal({ request, onClose, onCompleted }) {
             </p>
           </div>
 
+          {/* Ô nhập ghi chú bàn giao */}
           <div>
             <label className="block text-xs font-semibold text-brand-ink mb-1">
               Ghi Chú Bàn Giao
@@ -150,6 +176,7 @@ function CompleteAssetRequestModal({ request, onClose, onCompleted }) {
             />
           </div>
 
+          {/* Hàng nút Hủy và Xác nhận xuất kho */}
           <div className="flex items-center justify-end gap-2 pt-3 border-t border-brand-bone">
             <button
               type="button"

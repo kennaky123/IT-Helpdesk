@@ -1,3 +1,13 @@
+/**
+ * TicketListSkeleton.jsx
+ *
+ * Chức năng: Hiển thị giao diện khung xương (loading skeleton) mô phỏng danh sách ticket trong lúc chờ dữ liệu.
+ * Props: Không nhận props.
+ * Vai trò: Giảm hiện tượng giật bố cục (CLS) và tạo phản hồi thị giác mượt mà trong luồng tải danh sách ticket,
+ * tương ứng với cả chế độ thẻ trên màn hình nhỏ (`< xl`) và bảng 8 cột trên desktop (`>= xl`).
+ */
+
+// Danh sách khóa định danh tĩnh dùng để render các hàng/thẻ skeleton giả lập
 const SKELETON_ROWS = [
   "row-1",
   "row-2",
@@ -7,6 +17,7 @@ const SKELETON_ROWS = [
   "row-6",
 ];
 
+// Component phụ trợ tạo thanh placeholder nhấp nháy, tự tắt animation nếu thiết bị bật giảm chuyển động
 function SkeletonLine({ className }) {
   return (
     <span
@@ -16,6 +27,7 @@ function SkeletonLine({ className }) {
   );
 }
 
+// Component skeleton chính của danh sách ticket với thuộc tính `role="status"` hỗ trợ trình đọc màn hình
 function TicketListSkeleton() {
   return (
     <div
@@ -25,6 +37,7 @@ function TicketListSkeleton() {
     >
       <span className="sr-only">Đang tải danh sách ticket...</span>
 
+      {/* Khung xương chế độ thẻ cho màn hình mobile/tablet (hiển thị 4 thẻ mẫu) */}
       <div className="divide-y divide-slate-100 xl:hidden">
         {SKELETON_ROWS.slice(0, 4).map((item) => (
           <div key={item} className="p-4 sm:p-5" aria-hidden="true">
@@ -46,6 +59,7 @@ function TicketListSkeleton() {
         ))}
       </div>
 
+      {/* Khung xương chế độ bảng 8 cột cho màn hình desktop (hiển thị tiêu đề giả + 6 dòng mẫu) */}
       <div className="hidden xl:block">
         <div className="grid grid-cols-8 gap-4 bg-slate-50 px-5 py-4" aria-hidden="true">
           {["h-1", "h-2", "h-3", "h-4", "h-5", "h-6", "h-7", "h-8"].map(

@@ -1,3 +1,10 @@
+/**
+ * Kho hướng dẫn tự khắc phục sự cố (Self-Service Troubleshooting Guides) theo danh mục.
+ * Vai trò: Cung cấp các bước xử lý nhanh để gợi ý cho người dùng ngay trong lúc tạo ticket
+ * (hỗ trợ giảm tải ticket L1 cho đội ngũ IT Helpdesk).
+ */
+
+// Tập hợp các nhóm hướng dẫn chuẩn hóa theo 5 nhóm danh mục sự cố phổ biến
 export const TROUBLESHOOTING_GUIDES_BY_CATEGORY = {
   // 1. Mạng Internet, Wi-Fi, VPN
   "mang-internet": {
@@ -395,6 +402,10 @@ export const TROUBLESHOOTING_GUIDES_BY_CATEGORY = {
 /**
  * Lấy danh sách các hướng dẫn sửa lỗi thông dụng dựa trên danh mục được chọn
  * và tìm kiếm khớp từ khóa trong tiêu đề/mô tả của người dùng.
+ * Cơ chế:
+ * 1. Chuẩn hóa slug/tên danh mục để ánh xạ sang nhóm hướng dẫn tương ứng.
+ * 2. Chấm điểm (`matchScore`) mỗi bài hướng dẫn theo số lượng từ khóa xuất hiện trong tiêu đề + mô tả.
+ * 3. Sắp xếp giảm dần theo `matchScore` để đưa hướng dẫn sát với lỗi nhất lên đầu.
  */
 export function getTroubleshootingGuidesForTicket({ category, title = "", description = "" }) {
   if (!category) return [];
@@ -403,6 +414,7 @@ export function getTroubleshootingGuidesForTicket({ category, title = "", descri
   const slug = (category.slug || category.name || "").toLowerCase();
   let matchedGroup;
 
+  // Ánh xạ từ khóa trong slug/tên danh mục sang nhóm hướng dẫn tương ứng
   if (slug.includes("mang") || slug.includes("net") || slug.includes("vpn") || slug.includes("wifi")) {
     matchedGroup = TROUBLESHOOTING_GUIDES_BY_CATEGORY["mang-internet"];
   } else if (slug.includes("mem") || slug.includes("soft") || slug.includes("app") || slug.includes("ung-dung")) {
@@ -420,6 +432,7 @@ export function getTroubleshootingGuidesForTicket({ category, title = "", descri
 
   if (!matchedGroup || !matchedGroup.guides) return [];
 
+  // Gộp tiêu đề và mô tả thành chuỗi chữ thường để đối chiếu từ khóa
   const textToSearch = `${title} ${description}`.toLowerCase();
 
   // Sắp xếp theo mức độ khớp từ khóa với sự cố của user

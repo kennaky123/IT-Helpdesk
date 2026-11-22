@@ -1,3 +1,10 @@
+/**
+ * @file ticketValidators.js
+ * @description Bộ middleware kiểm tra và chuẩn hóa toàn bộ dữ liệu đầu vào cho quy trình xử lý Ticket.
+ * Vai trò trong kiến trúc Backend: Thuộc tầng Validator (Express Middleware Validator), dùng trong `ticketRoutes.js`
+ * và `ticketConversationRoutes.js` để xác thực ObjectId, tạo ticket, bộ lọc danh sách phức tạp, phân công kỹ thuật viên,
+ * chuyển trạng thái, cập nhật giải pháp, hủy và đóng ticket.
+ */
 import { isValidId } from "../config/database.js";
 import {
   TICKET_PRIORITIES,
@@ -5,14 +12,19 @@ import {
 } from "../constants/ticket.js";
 import ApiError from "../utils/ApiError.js";
 
+// Các trạng thái đích mà Technician được phép cập nhật trực tiếp qua endpoint /status
 const technicianTargetStatuses = [
   "in_progress",
   "waiting_user",
   "resolved",
 ];
 
+// Giới hạn số trang tối đa cho truy vấn phân trang
 const MAX_PAGE = 1_000_000;
 
+/**
+ * Hàm điều phối lỗi chuẩn: đẩy `ApiError(400)` nếu có lỗi hoặc gọi `next()` để tiếp tục pipeline.
+ */
 function rejectInvalidInput(errors, next) {
   if (errors.length > 0) {
     return next(
@@ -23,10 +35,16 @@ function rejectInvalidInput(errors, next) {
   return next();
 }
 
+/**
+ * Chuẩn hóa chuỗi tùy chọn: trim khoảng trắng, trả về null nếu rỗng hoặc không phải chuỗi.
+ */
 function normalizeOptionalString(value) {
   return typeof value === "string" ? value.trim() || null : null;
 }
 
+/**
+ * Chuẩn hóa tham số chuỗi trên query string; đẩy thông báo lỗi vào mảng `errors` nếu sai kiểu dữ liệu.
+ */
 function normalizeQueryString(value, fieldName, errors) {
   if (value === undefined) {
     return null;
@@ -40,6 +58,9 @@ function normalizeQueryString(value, fieldName, errors) {
   return value.trim() || null;
 }
 
+/**
+ * Chuẩn hóa chuỗi tùy chọn trong request body; kiểm tra đúng kiểu `string` nếu được truyền vào.
+ */
 function normalizeBodyOptionalString(value, fieldName, errors) {
   if (value === undefined || value === null) {
     return null;
@@ -53,6 +74,9 @@ function normalizeBodyOptionalString(value, fieldName, errors) {
   return value.trim() || null;
 }
 
+/**
+ * Phân tích tham số phân trang thành số nguyên không âm an toàn, trả về `fallback` nếu không truyền.
+ */
 function parsePositiveInteger(value, fallback) {
   if (value === undefined) {
     return fallback;
@@ -72,6 +96,9 @@ function parsePositiveInteger(value, fallback) {
   return Number.isSafeInteger(parsedValue) ? parsedValue : Number.NaN;
 }
 
+/**
+ * Middleware kiểm tra tính hợp lệ của tham số `:ticketId` trên URL.
+ */
 export function validateTicketId(request, _response, next) {
   const { ticketId } = request.params;
 
@@ -82,6 +109,9 @@ export function validateTicketId(request, _response, next) {
   return next();
 }
 
+/**
+ * Middleware kiểm tra tính hợp lệ của tham số `:attachmentId` trên URL khi tải tệp đính kèm.
+ */
 export function validateAttachmentId(request, _response, next) {
   const { attachmentId } = request.params;
 
@@ -92,6 +122,11 @@ export function validateAttachmentId(request, _response, next) {
   return next();
 }
 
+/**
+ * Middleware validate dữ liệu tạo mới Ticket (`POST /api/tickets`).
+ * Quy tắc: `title` (5-200 ký tự), `description` (10-5000 ký tự), `category` là ObjectId hợp lệ,
+ * `priority` thuộc `TICKET_PRIORITIES` (mặc định `"medium"`), `technicianId` (nếu có) phải là ObjectId hợp lệ.
+ */
 export function validateCreateTicket(request, _response, next) {
   try {
     const body = request.body ?? {};
@@ -117,6 +152,7 @@ export function validateCreateTicket(request, _response, next) {
       errors.push("Mức độ ưu tiên không hợp lệ.");
     }
 
+    // Cho phép chỉ định sẵn kỹ thuật viên tùy chọn khi tạo ticket
     const technicianId =
       typeof body.technicianId === "string" && body.technicianId.trim()
         ? body.technicianId.trim()
@@ -126,6 +162,7 @@ export function validateCreateTicket(request, _response, next) {
       errors.push("Kỹ thuật viên được phân công không hợp lệ.");
     }
 
+    // Làm sạch request.body chỉ giữ lại đúng các trường được phép
     request.body = {
       title,
       description,
@@ -140,6 +177,12 @@ export function validateCreateTicket(request, _response, next) {
   }
 }
 
+/**
+ * Middleware validate và chuẩn hóa bộ lọc + phân trang danh sách Ticket (`GET /api/tickets`).
+ * Hỗ trợ tìm kiếm từ khóa, lọc đơn `status` hoặc đa trạng thái `statuses` (không dùng đồng thời cả 2),
+ * lọc theo `priority`, `category`, `technician`, `page`, `limit` và `sortOrder`.
+ * Gắn đối tượng sạch vào `request.ticketQuery`.
+ */
 export function validateTicketQuery(request, _response, next) {
   try {
     const query = request.query ?? {};
@@ -172,6 +215,7 @@ export function validateTicketQuery(request, _response, next) {
       errors.push("Bộ lọc trạng thái không hợp lệ.");
     }
 
+    // Tách chuỗi statuses phân cách bằng dấu phẩy và khử trùng lặp bằng Set
     const statuses = statusesValue
       ? [...new Set(statusesValue.split(",").map((item) => item.trim()).filter(Boolean))]
       : [];
@@ -183,6 +227,7 @@ export function validateTicketQuery(request, _response, next) {
       errors.push("Danh sách trạng thái lọc không hợp lệ.");
     }
 
+    // Ngăn xung đột logic khi client gửi cả bộ lọc đơn (status) và bộ lọc nhiều trạng thái (statuses)
     if (status && statuses.length > 0) {
       errors.push("Chỉ được dùng một kiểu bộ lọc trạng thái.");
     }
@@ -211,6 +256,7 @@ export function validateTicketQuery(request, _response, next) {
       errors.push("Thứ tự sắp xếp phải là asc hoặc desc.");
     }
 
+    // Lưu toàn bộ tham số lọc sạch vào request.ticketQuery để controller xây dựng query MongoDB
     request.ticketQuery = {
       search,
       status,
@@ -229,6 +275,10 @@ export function validateTicketQuery(request, _response, next) {
   }
 }
 
+/**
+ * Middleware validate payload phân công hoặc chuyển giao kỹ thuật viên (`PATCH /api/tickets/:ticketId/assign`).
+ * Quy tắc: Bắt buộc `technicianId` là ObjectId hợp lệ; `reason` tùy chọn tối đa 500 ký tự.
+ */
 export function validateAssignment(request, _response, next) {
   try {
     const body = request.body ?? {};
@@ -258,6 +308,11 @@ export function validateAssignment(request, _response, next) {
   }
 }
 
+/**
+ * Middleware validate dữ liệu cập nhật trạng thái xử lý ticket (`PATCH /api/tickets/:ticketId/status`).
+ * Quy tắc: `status` thuộc `["in_progress", "waiting_user", "resolved"]`, bắt buộc `note` (1-500 ký tự);
+ * chỉ cho phép gửi `resolution` (<= 5000 ký tự) khi chuyển sang trạng thái `"resolved"`.
+ */
 export function validateStatusUpdate(request, _response, next) {
   try {
     const body = request.body ?? {};
@@ -295,6 +350,10 @@ export function validateStatusUpdate(request, _response, next) {
   }
 }
 
+/**
+ * Middleware validate cập nhật nội dung giải quyết ticket (`PATCH /api/tickets/:ticketId/resolution`).
+ * Quy tắc: Bắt buộc `resolution` từ 1 đến 5000 ký tự.
+ */
 export function validateResolution(request, _response, next) {
   try {
     const errors = [];
@@ -315,6 +374,10 @@ export function validateResolution(request, _response, next) {
   }
 }
 
+/**
+ * Middleware validate dữ liệu hủy ticket (`PATCH /api/tickets/:ticketId/cancel`).
+ * Quy tắc: `reason` tùy chọn, nếu có thì tối đa 500 ký tự.
+ */
 export function validateCancellation(request, _response, next) {
   try {
     const errors = [];
@@ -335,6 +398,10 @@ export function validateCancellation(request, _response, next) {
   }
 }
 
+/**
+ * Middleware validate dữ liệu đóng ticket (`PATCH /api/tickets/:ticketId/close`).
+ * Quy tắc: `note` ghi chú đóng ticket tùy chọn tối đa 500 ký tự.
+ */
 export function validateCloseTicket(request, _response, next) {
   try {
     const errors = [];

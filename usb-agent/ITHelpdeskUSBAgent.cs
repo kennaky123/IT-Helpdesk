@@ -1,3 +1,18 @@
+/*
+ * ITHelpdeskUSBAgent.cs — Windows System Tray Agent giám sát an ninh USB & DLP cho hệ thống IT Helpdesk.
+ *
+ * Kiến trúc tổng thể:
+ * - Chạy ngầm ở khay hệ thống Windows (WinForms ApplicationContext + NotifyIcon), đảm bảo chỉ 1 tiến trình
+ *   duy nhất hoạt động trên mỗi phiên đăng nhập nhờ SingleInstanceMutex.
+ * - Luồng nền (_workerThread) quét định kỳ các thiết bị USB/ổ đĩa/âm thanh/ngoại vi qua WMI (Win32_DiskDrive
+ *   và Win32_PnPEntity), theo dõi cắm/rút theo chu kỳ 1,5 giây và gửi sự kiện HTTP POST lên Backend.
+ * - Giao tiếp HTTP heartbeat & đồng bộ chính sách (GET /api/usb/agent-policies mỗi ~3 giây) để cập nhật
+ *   danh sách Blacklist/Whitelist từ Admin.
+ * - Khi phát hiện thiết bị thuộc chính sách "blocked", Agent phát âm thanh cảnh báo (SystemSounds.Exclamation),
+ *   hiển thị thông báo khay hệ thống và vô hiệu hóa phần cứng PnP bằng pnputil.exe (yêu cầu quyền Admin).
+ * - Khi chạy với quyền Administrator, Agent tự sao chép cài đặt vào %ProgramData%\ITHelpdeskUSBAgent và
+ *   đăng ký Task Scheduler tự động khởi chạy cùng Windows ở mức quyền cao nhất (/rl highest).
+ */
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -17,6 +32,9 @@ using System.Web.Script.Serialization;
 
 namespace ITHelpdeskUSBAgent
 {
+    /// <summary>
+    /// Bản ghi lưu trữ thông tin chi tiết của một thiết bị USB/PnP phát hiện trên máy trạm.
+    /// </summary>
     public class UsbDeviceRecord
     {
         public string DeviceId { get; set; }
@@ -28,19 +46,27 @@ namespace ITHelpdeskUSBAgent
         public string VolumeName { get; set; }
     }
 
+    /// <summary>
+    /// Mô hình cấu hình JSON (agent-config.json) lưu địa chỉ máy chủ Backend IT Helpdesk.
+    /// </summary>
     public class AgentConfig
     {
         public string serverUrl { get; set; }
     }
 
+    /// <summary>
+    /// Điểm khởi chạy chính của tiến trình Windows Forms Tray Agent.
+    /// </summary>
     static class Program
     {
+        // Mutex đặt tên trong namespace Local\ để ngăn chạy trùng lặp nhiều bản Agent trong cùng phiên người dùng
         private static Mutex SingleInstanceMutex;
 
         [STAThread]
         static void Main(string[] args)
         {
             bool createdNew;
+            // Khởi tạo và chiếm giữ Mutex; nếu createdNew == false nghĩa là đã có một bản Agent đang chạy
             SingleInstanceMutex = new Mutex(true, "Local\\ITHelpdeskUSBAgent_Tray_v2", out createdNew);
             if (!createdNew)
             {
@@ -52,18 +78,25 @@ namespace ITHelpdeskUSBAgent
 
             try
             {
+                // Chạy vòng lặp thông điệp WinForms với ApplicationContext tùy biến (không mở Form chính lúc khởi động)
                 Application.Run(new TrayAgentContext(args));
             }
             finally
             {
+                // Giải phóng Mutex an toàn khi Agent thoát hoàn toàn
                 try { SingleInstanceMutex.ReleaseMutex(); } catch { }
                 SingleInstanceMutex.Dispose();
             }
         }
     }
 
+    /// <summary>
+    /// Ngữ cảnh chạy ngầm ở System Tray: quản lý giao diện NotifyIcon, cửa sổ Log, luồng quét WMI
+    /// và đồng bộ chính sách/heartbeat với máy chủ IT Helpdesk.
+    /// </summary>
     public class TrayAgentContext : ApplicationContext
     {
+        // Tên tác vụ trong Windows Task Scheduler và đường dẫn cài đặt cố định tại C:\ProgramData\ITHelpdeskUSBAgent
         private const string TaskName = "ITHelpdeskUSBAgent";
         private static readonly string InstallDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -76,17 +109,22 @@ namespace ITHelpdeskUSBAgent
             "agent-config.json"
         );
 
+        // Thông tin định danh máy trạm và trạng thái quyền thực thi hiện tại
         private readonly string _hostname = Environment.MachineName;
         private readonly string _osUsername = Environment.UserName;
         private readonly string _localIp;
         private readonly bool _isAdmin;
         private readonly JavaScriptSerializer _jsonSerializer = new JavaScriptSerializer();
+
+        // Bộ nhớ đệm các thiết bị USB đang cắm và tập thiết bị đã bị Agent ngắt phần cứng (tránh gọi pnputil lặp lại)
         private readonly Dictionary<string, UsbDeviceRecord> _connectedDevices =
             new Dictionary<string, UsbDeviceRecord>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _blockedByAgent =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Khóa đồng bộ truy cập đa luồng giữa luồng quét WMI, đồng bộ thủ công và luồng nhận policy
         private readonly object _syncLock = new object();
         private readonly List<string> _logBuffer = new List<string>();
+        // SynchronizationContext dùng để đẩy các thao tác cập nhật UI (Menu, Balloon, LogBox) về đúng luồng WinForms
         private readonly SynchronizationContext _uiContext;
 
         private string _serverBaseUrl = "http://192.168.1.6:5000";
@@ -94,6 +132,7 @@ namespace ITHelpdeskUSBAgent
         private volatile bool _isRunning = true;
         private int _simulatedCounter = 1;
 
+        // Các thành phần UI của Tray Agent
         private NotifyIcon _trayIcon;
         private ToolStripMenuItem _statusMenuItem;
         private ToolStripMenuItem _startupMenuItem;
@@ -101,6 +140,9 @@ namespace ITHelpdeskUSBAgent
         private TextBox _logTextBox;
         private Thread _workerThread;
 
+        /// <summary>
+        /// Khởi tạo ngữ cảnh Tray Agent, dựng biểu tượng khay hệ thống và khởi chạy luồng nền giám sát.
+        /// </summary>
         public TrayAgentContext(string[] args)
         {
             _uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
@@ -112,11 +154,15 @@ namespace ITHelpdeskUSBAgent
             Log(string.Format("Máy trạm: {0} | User: {1} | IP: {2} | Quyền Admin: {3}",
                 _hostname, _osUsername, _localIp, _isAdmin ? "CÓ" : "KHÔNG"));
 
+            // Khởi chạy luồng nền thực hiện cài đặt, dò tìm server, quét WMI và đồng bộ policy
             _workerThread = new Thread(() => RunBackgroundLoop(args));
             _workerThread.IsBackground = true;
             _workerThread.Start();
         }
 
+        /// <summary>
+        /// Tạo biểu tượng System Tray (NotifyIcon) cùng menu chuột phải cho quản trị viên/người dùng thao tác nhanh.
+        /// </summary>
         private void BuildTrayIcon()
         {
             ContextMenuStrip menu = new ContextMenuStrip();
@@ -165,6 +211,9 @@ namespace ITHelpdeskUSBAgent
             _trayIcon.DoubleClick += (s, e) => ShowLogWindow();
         }
 
+        /// <summary>
+        /// Vẽ icon chiếc khiên màu tím (#6647f0) kèm biểu tượng USB màu trắng bằng GDI+ mà không cần file .ico ngoài.
+        /// </summary>
         private Icon CreateShieldIcon()
         {
             Bitmap bmp = new Bitmap(32, 32);
@@ -173,6 +222,7 @@ namespace ITHelpdeskUSBAgent
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 g.Clear(Color.Transparent);
 
+                // Vẽ hình đa giác chiếc khiên và viền trắng
                 using (GraphicsPath path = new GraphicsPath())
                 {
                     path.AddPolygon(new Point[]
@@ -194,7 +244,7 @@ namespace ITHelpdeskUSBAgent
                     }
                 }
 
-                // Draw crisp white USB trident symbol inside shield
+                // Draw crisp white USB trident symbol inside shield (Vẽ biểu tượng đinh ba USB bên trong khiên)
                 using (Pen whitePen = new Pen(Color.White, 2f))
                 {
                     whitePen.StartCap = LineCap.Round;
@@ -214,6 +264,13 @@ namespace ITHelpdeskUSBAgent
             return Icon.FromHandle(hIcon);
         }
 
+        /// <summary>
+        /// Vòng lặp chính chạy trên luồng nền:
+        /// 1. Tự cài đặt vào ProgramData & đăng ký Task Scheduler (nếu có quyền Admin).
+        /// 2. Khởi tạo/dò tìm kết nối tới Backend Server.
+        /// 3. Quét thiết bị USB ban đầu và tải policy chặn hiện hành.
+        /// 4. Lặp vô hạn mỗi 1,5 giây: theo dõi biến động cắm/rút USB qua WMI và mỗi ~3 giây gọi heartbeat đồng bộ policy.
+        /// </summary>
         private void RunBackgroundLoop(string[] args)
         {
             if (_isAdmin)
@@ -243,9 +300,10 @@ namespace ITHelpdeskUSBAgent
             {
                 try
                 {
+                    // Kiểm tra thiết bị USB cắm mới hoặc vừa rút ra bằng WMI snapshot
                     PollUsbChanges();
 
-                    // Đồng bộ chính sách chặn/mở khóa từ Server mỗi ~3 giây
+                    // Đồng bộ chính sách chặn/mở khóa từ Server mỗi ~3 giây (đồng thời đóng vai trò heartbeat)
                     if (cycle % 2 == 0)
                     {
                         SyncPoliciesFromServer();
@@ -261,6 +319,10 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Tự động sao chép file thực thi & agent-config.json vào C:\ProgramData\ITHelpdeskUSBAgent
+        /// và đăng ký tác vụ Task Scheduler tự chạy khi người dùng đăng nhập với quyền Admin cao nhất.
+        /// </summary>
         private void EnsureAutoInstallAndStartupTask()
         {
             try
@@ -284,6 +346,7 @@ namespace ITHelpdeskUSBAgent
                     }
                 }
 
+                // Sao chép file cấu hình đi kèm (nếu có) vào thư mục ProgramData lần đầu
                 if (File.Exists(LocalConfigFilePath) && !File.Exists(ConfigFilePath))
                 {
                     try { File.Copy(LocalConfigFilePath, ConfigFilePath, true); } catch { }
@@ -305,6 +368,9 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Kiểm tra tác vụ tự khởi động đã tồn tại trong Windows Task Scheduler chưa.
+        /// </summary>
         private bool IsStartupTaskRegistered()
         {
             string output;
@@ -312,6 +378,9 @@ namespace ITHelpdeskUSBAgent
             return code == 0;
         }
 
+        /// <summary>
+        /// Đăng ký tác vụ Task Scheduler (`/sc onlogon /rl highest /f`) để chạy Agent với quyền Admin khi logon.
+        /// </summary>
         private bool RegisterStartupTask(string exePath)
         {
             string args = string.Format(
@@ -329,6 +398,9 @@ namespace ITHelpdeskUSBAgent
             return true;
         }
 
+        /// <summary>
+        /// Xóa tác vụ tự khởi động khỏi Windows Task Scheduler.
+        /// </summary>
         private bool UnregisterStartupTask()
         {
             string output;
@@ -336,6 +408,9 @@ namespace ITHelpdeskUSBAgent
             return code == 0;
         }
 
+        /// <summary>
+        /// Bật hoặc tắt chế độ tự động khởi động cùng Windows từ menu khay hệ thống (yêu cầu quyền Admin).
+        /// </summary>
         private void ToggleStartupTask()
         {
             if (!_isAdmin)
@@ -371,6 +446,12 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Vô hiệu hóa hoặc kích hoạt lại thiết bị PnP cấp phần cứng Windows theo PNPDeviceID.
+        /// Cơ chế: Gọi trực tiếp `pnputil.exe /disable-device` hoặc `/enable-device` (tương đương
+        /// `Disable-PnpDevice`/`Enable-PnpDevice` trong PowerShell nhưng nhẹ hơn và chạy trực tiếp từ System32).
+        /// Bỏ qua các thiết bị test giả lập (`VEN_SIMULATED`) và yêu cầu quyền Administrator.
+        /// </summary>
         private bool SetDeviceEnabled(string pnpDeviceId, bool enable)
         {
             if (string.IsNullOrWhiteSpace(pnpDeviceId)) return false;
@@ -400,6 +481,10 @@ namespace ITHelpdeskUSBAgent
             return exitCode == 0;
         }
 
+        /// <summary>
+        /// Thực thi lệnh hệ thống (như schtasks.exe, pnputil.exe) ở chế độ chạy ngầm không mở cửa sổ console,
+        /// đọc toàn bộ stdout/stderr với timeout tối đa 10 giây.
+        /// </summary>
         private int RunProcess(string fileName, string arguments, out string output)
         {
             output = "";
@@ -433,6 +518,13 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Đồng bộ danh sách chính sách USB từ Backend (GET /api/usb/agent-policies) và đóng vai trò
+        /// heartbeat kiểm tra kết nối định kỳ với máy chủ.
+        /// - Nếu thiết bị đang cắm nằm trong danh sách blocked: vô hiệu hóa phần cứng qua pnputil,
+        ///   phát âm thanh cảnh báo (SystemSounds.Exclamation) và hiển thị Balloon Error.
+        /// - Nếu thiết bị từng bị Agent chặn nay được Admin gỡ chặn/duyệt: tự động kích hoạt lại phần cứng.
+        /// </summary>
         private void SyncPoliciesFromServer()
         {
             if (string.IsNullOrEmpty(_serverBaseUrl)) return;
@@ -456,6 +548,7 @@ namespace ITHelpdeskUSBAgent
                     var policies = dataObj["policies"] as object[];
                     if (policies == null) return;
 
+                    // Tập các PNPDeviceID đang bị Admin chặn trên máy chủ và bảng tra tên thiết bị
                     HashSet<string> serverBlockedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     Dictionary<string, string> policyNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -492,6 +585,7 @@ namespace ITHelpdeskUSBAgent
                                 string devName = _connectedDevices[blockedId].DeviceName ?? blockedId;
                                 bool disabled = SetDeviceEnabled(blockedId, false);
                                 _blockedByAgent.Add(blockedId);
+                                // Phát âm thanh cảnh báo hệ thống Windows khi phát hiện USB bị chặn
                                 try { SystemSounds.Exclamation.Play(); } catch { }
                                 Log(string.Format("🚨 [CHẶN PHẦN CỨNG] {0} ({1}) — Trạng thái: {2}",
                                     devName, blockedId, disabled ? "ĐÃ NGẮT KẾT NỐI" : "Cần quyền Admin"));
@@ -532,6 +626,7 @@ namespace ITHelpdeskUSBAgent
                         }
                     }
 
+                    // Đánh dấu kết nối máy chủ khỏe mạnh (heartbeat thành công)
                     if (!_isConnectedToServer)
                     {
                         _isConnectedToServer = true;
@@ -541,6 +636,7 @@ namespace ITHelpdeskUSBAgent
             }
             catch
             {
+                // Khi gọi API chính sách thất bại, cập nhật trạng thái mất kết nối trên khay hệ thống
                 if (_isConnectedToServer)
                 {
                     _isConnectedToServer = false;
@@ -549,6 +645,9 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Quét toàn bộ thiết bị USB hiện có ngay lúc Agent khởi động và báo cáo các thiết bị lưu trữ (storage).
+        /// </summary>
         private void ScanAndSyncInitialDevices()
         {
             Dictionary<string, UsbDeviceRecord> initialDevices = ScanCurrentUsbDevices();
@@ -561,6 +660,7 @@ namespace ITHelpdeskUSBAgent
             }
             Log(string.Format("[✓] Đã ghi nhận {0} thiết bị USB hiện có trên máy.", initialDevices.Count));
 
+            // Chỉ tự động đẩy sự kiện khởi tạo với các thiết bị lưu trữ ngoài (USB flash/ổ cứng di động)
             foreach (var kvp in initialDevices)
             {
                 if (kvp.Value.DeviceType == "storage")
@@ -570,6 +670,11 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Cơ chế theo dõi biến động PnP/USB bằng cách đối chiếu snapshot WMI hiện tại với cache `_connectedDevices`:
+        /// - Thiết bị mới xuất hiện -> gửi sự kiện "connected" lên Backend.
+        /// - Thiết bị không còn trong WMI -> xóa khỏi cache/_blockedByAgent và gửi sự kiện "disconnected".
+        /// </summary>
         private void PollUsbChanges()
         {
             Dictionary<string, UsbDeviceRecord> current = ScanCurrentUsbDevices();
@@ -578,6 +683,7 @@ namespace ITHelpdeskUSBAgent
 
             lock (_syncLock)
             {
+                // Tìm các thiết bị mới được cắm vào
                 foreach (var kvp in current)
                 {
                     if (!_connectedDevices.ContainsKey(kvp.Key))
@@ -587,6 +693,7 @@ namespace ITHelpdeskUSBAgent
                     }
                 }
 
+                // Tìm các thiết bị đã bị rút ra khỏi máy
                 List<string> removedKeys = new List<string>();
                 foreach (var kvp in _connectedDevices)
                 {
@@ -617,6 +724,9 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Quét lại toàn bộ thiết bị USB hiện tại và đẩy trạng thái lên máy chủ theo yêu cầu thủ công từ menu Tray.
+        /// </summary>
         private void SyncAllConnectedUsbToServer(bool showNotification)
         {
             Dictionary<string, UsbDeviceRecord> current = ScanCurrentUsbDevices();
@@ -648,6 +758,10 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Tạo sự kiện cắm USB giả lập (VEN_SIMULATED) để kiểm thử luồng cảnh báo realtime trên Web Dashboard
+        /// mà không cần cắm thiết bị vật lý.
+        /// </summary>
         private void TriggerSimulatedUsbEvent()
         {
             string[] sampleNames = new string[]
@@ -684,6 +798,11 @@ namespace ITHelpdeskUSBAgent
             SendUsbEventToServer(sim, "connected");
         }
 
+        /// <summary>
+        /// Gửi thông tin sự kiện cắm/rút thiết bị USB cùng ngữ cảnh máy trạm lên endpoint POST /api/usb/agent-event.
+        /// Nếu phản hồi từ Backend trả về `policyStatus == "blocked"` khi mới cắm, Agent lập tức ngắt cứng
+        /// thiết bị bằng pnputil, phát âm thanh cảnh báo và bật thông báo khay hệ thống.
+        /// </summary>
         private void SendUsbEventToServer(UsbDeviceRecord device, string eventType)
         {
             try
@@ -738,6 +857,7 @@ namespace ITHelpdeskUSBAgent
                         }
                     }
 
+                    // Thực thi chặn cứng ngay tức thì nếu Backend đánh dấu thiết bị thuộc Blacklist
                     if (policyStatus == "blocked" && eventType == "connected")
                     {
                         bool disabled = false;
@@ -778,6 +898,9 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Chuẩn hóa chuỗi IP/URL người dùng nhập (tự thêm http://, mặc định cổng :5000 và bỏ hậu tố /api).
+        /// </summary>
         private string NormalizeServerUrl(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return null;
@@ -794,6 +917,13 @@ namespace ITHelpdeskUSBAgent
             return s;
         }
 
+        /// <summary>
+        /// Khởi tạo kết nối máy chủ theo thứ tự ưu tiên:
+        /// 1. Tham số dòng lệnh (`args[0]`).
+        /// 2. Cấu hình đã lưu trong `agent-config.json` (ProgramData rồi tới thư mục chạy).
+        /// 3. Danh sách IP mặc định (localhost và IP LAN quen thuộc).
+        /// 4. Tự động quét toàn bộ dải mạng `/24` nội bộ nếu các ứng viên trên đều thất bại.
+        /// </summary>
         private void InitializeServerConnection(string[] args)
         {
             List<string> candidates = new List<string>();
@@ -862,6 +992,10 @@ namespace ITHelpdeskUSBAgent
             UpdateStatusMenu();
         }
 
+        /// <summary>
+        /// Quét song song 254 địa chỉ IP trong cùng subnet `/24` ở cổng 5000 (tối đa 40 luồng đồng thời)
+        /// bằng endpoint `/api/usb/agent-ping` để tự động tìm máy chủ IT Helpdesk trong mạng LAN.
+        /// </summary>
         private string AutoDiscoverServerOnSubnet(string localIp)
         {
             if (string.IsNullOrEmpty(localIp) || localIp == "127.0.0.1") return null;
@@ -896,6 +1030,9 @@ namespace ITHelpdeskUSBAgent
             return foundUrl;
         }
 
+        /// <summary>
+        /// Lưu địa chỉ Backend Server đang hoạt động vào `C:\ProgramData\ITHelpdeskUSBAgent\agent-config.json`.
+        /// </summary>
         private void SaveConfig(string url)
         {
             try
@@ -907,6 +1044,9 @@ namespace ITHelpdeskUSBAgent
             catch { }
         }
 
+        /// <summary>
+        /// Gửi HTTP GET heartbeat tới `/api/usb/agent-ping` để xác minh Backend đang phản hồi HTTP 200 OK.
+        /// </summary>
         private bool PingServer(string baseUrl, int timeoutMs = 2000)
         {
             try
@@ -926,6 +1066,10 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Mở hộp thoại cho phép kỹ thuật viên/người dùng thay đổi IP hoặc URL Backend Server thủ công,
+        /// sau đó kiểm tra kết nối qua /api/usb/agent-ping, lưu vào file cấu hình và đồng bộ policy ngay.
+        /// </summary>
         private void PromptChangeServerUrl()
         {
             using (Form dialog = new Form())
@@ -1002,6 +1146,10 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Hiển thị cửa sổ Nhật ký hoạt động (Log) dạng console tối màu; khi người dùng đóng cửa sổ
+        /// chỉ ẩn (Hide) chứ không kết thúc tiến trình Tray Agent.
+        /// </summary>
         private void ShowLogWindow()
         {
             UpdateUi(() =>
@@ -1050,6 +1198,9 @@ namespace ITHelpdeskUSBAgent
             });
         }
 
+        /// <summary>
+        /// Cập nhật dòng trạng thái kết nối + quyền Admin trong menu chuột phải và tooltip của biểu tượng Tray.
+        /// </summary>
         private void UpdateStatusMenu()
         {
             UpdateUi(() =>
@@ -1062,10 +1213,14 @@ namespace ITHelpdeskUSBAgent
                 string tip = _isConnectedToServer
                     ? "IT Helpdesk USB Agent — Đang bảo vệ"
                     : "IT Helpdesk USB Agent — Mất kết nối";
+                // NotifyIcon.Text giới hạn tối đa 63 ký tự trên Windows
                 _trayIcon.Text = tip.Length > 63 ? tip.Substring(0, 63) : tip;
             });
         }
 
+        /// <summary>
+        /// Hiển thị thông báo pop-up (Balloon Tip) ở góc phải thanh Taskbar Windows một cách an toàn từ mọi luồng.
+        /// </summary>
         private void ShowBalloon(string title, string message, ToolTipIcon icon)
         {
             UpdateUi(() =>
@@ -1081,6 +1236,9 @@ namespace ITHelpdeskUSBAgent
             });
         }
 
+        /// <summary>
+        /// Ghi dòng nhật ký có mốc thời gian vào bộ đệm vòng (giới hạn 300 dòng gần nhất) và đẩy ra cửa sổ Log nếu đang mở.
+        /// </summary>
         private void Log(string message)
         {
             string line = string.Format("[{0}] {1}", DateTime.Now.ToString("HH:mm:ss"), message);
@@ -1099,6 +1257,9 @@ namespace ITHelpdeskUSBAgent
             });
         }
 
+        /// <summary>
+        /// Thực thi hành động cập nhật giao diện trên luồng UI chính thông qua SynchronizationContext.Post.
+        /// </summary>
         private void UpdateUi(Action action)
         {
             try
@@ -1111,6 +1272,9 @@ namespace ITHelpdeskUSBAgent
             catch { }
         }
 
+        /// <summary>
+        /// Dừng vòng lặp nền, dọn dẹp NotifyIcon/Form Log và thoát ApplicationContext sạch sẽ.
+        /// </summary>
         private void ExitAgent()
         {
             _isRunning = false;
@@ -1126,6 +1290,9 @@ namespace ITHelpdeskUSBAgent
             ExitThread();
         }
 
+        /// <summary>
+        /// Kiểm tra tiến trình hiện tại có đang chạy với quyền Administrator (Elevated) hay không.
+        /// </summary>
         private static bool IsRunAsAdministrator()
         {
             try
@@ -1140,11 +1307,19 @@ namespace ITHelpdeskUSBAgent
             }
         }
 
+        /// <summary>
+        /// Quét toàn bộ thiết bị USB đang kết nối trên máy trạm thông qua 2 truy vấn WMI:
+        /// 1. `Win32_DiskDrive WHERE InterfaceType='USB'`: Thu thập USB Flash/ổ cứng ngoài kèm ký tự ổ đĩa & dung lượng.
+        /// 2. `Win32_PnPEntity WHERE PNPDeviceID LIKE 'USB%'`: Thu thập thiết bị ngoại vi PnP (âm thanh/camera `audio_video`,
+        ///    chuột/bàn phím `input_hid`, điện thoại `mobile_mtp`, lưu trữ, v.v.) và loại bỏ các node trung gian như Root Hub,
+        ///    Generic USB Hub, Composite Device hay Host Controller.
+        /// </summary>
         private static Dictionary<string, UsbDeviceRecord> ScanCurrentUsbDevices()
         {
             Dictionary<string, UsbDeviceRecord> results =
                 new Dictionary<string, UsbDeviceRecord>(StringComparer.OrdinalIgnoreCase);
 
+            // Lớp 1: Quét ổ đĩa USB lưu trữ (Win32_DiskDrive) để lấy đầy đủ DriveLetter & VolumeName
             try
             {
                 using (var searcher = new ManagementObjectSearcher(
@@ -1186,6 +1361,7 @@ namespace ITHelpdeskUSBAgent
             }
             catch { }
 
+            // Lớp 2: Quét toàn bộ thực thể PnP qua cổng USB (âm thanh/video, thiết bị nhập, điện thoại MTP...)
             try
             {
                 using (var searcher = new ManagementObjectSearcher(
@@ -1201,6 +1377,7 @@ namespace ITHelpdeskUSBAgent
                         string service = Convert.ToString(entity["Service"] ?? "").Trim().ToUpperInvariant();
                         string pnpClass = Convert.ToString(entity["PNPClass"] ?? "").Trim().ToUpperInvariant();
 
+                        // Lọc bỏ các bộ chia Hub, Composite và Host Controller nội bộ để tránh cảnh báo giả
                         if (upperId.StartsWith("USB\\ROOT_HUB") ||
                             service == "USBHUB" ||
                             service == "USBHUB3" ||
@@ -1213,6 +1390,7 @@ namespace ITHelpdeskUSBAgent
                             continue;
                         }
 
+                        // Phân loại nhóm thiết bị USB dựa vào tiền tố PNPDeviceID, driver Service và PNPClass
                         string deviceType = "other_usb";
                         if (upperId.StartsWith("USBSTOR\\") || service == "USBSTOR" || pnpClass == "DISKDRIVE")
                         {
@@ -1255,6 +1433,10 @@ namespace ITHelpdeskUSBAgent
             return results;
         }
 
+        /// <summary>
+        /// Liên kết từ `Win32_DiskDrive` -> `Win32_DiskPartition` -> `Win32_LogicalDisk` trong WMI
+        /// để lấy ký tự ổ đĩa (như E:, F:) và nhãn/dung lượng phân vùng (GB).
+        /// </summary>
         private static void GetDriveLettersAndVolume(ManagementObject diskDrive, out string driveLetter, out string volumeInfo)
         {
             driveLetter = null;
@@ -1287,6 +1469,9 @@ namespace ITHelpdeskUSBAgent
             catch { }
         }
 
+        /// <summary>
+        /// Trích xuất mã hãng sản xuất (VEN_... hoặc VID_...) từ chuỗi PNPDeviceID hoặc lấy từ khóa đầu của tên thiết bị.
+        /// </summary>
         private static string ExtractVendorFromPnpId(string pnpId, string fallbackName)
         {
             if (string.IsNullOrEmpty(pnpId)) return "Unknown Vendor";
@@ -1310,6 +1495,9 @@ namespace ITHelpdeskUSBAgent
             return "USB Device Vendor";
         }
 
+        /// <summary>
+        /// Trích xuất số Serial ở phân đoạn cuối cùng của chuỗi PNPDeviceID (bỏ hậu tố &0 nếu có).
+        /// </summary>
         private static string ExtractSerialFromPnpId(string pnpId)
         {
             if (string.IsNullOrEmpty(pnpId)) return null;
@@ -1321,6 +1509,9 @@ namespace ITHelpdeskUSBAgent
             return null;
         }
 
+        /// <summary>
+        /// Dò địa chỉ IPv4 LAN đang hoạt động của máy trạm (bỏ qua Loopback và IP tự cấp APIPA 169.254.x.x).
+        /// </summary>
         private static string DetectLocalIpv4()
         {
             try

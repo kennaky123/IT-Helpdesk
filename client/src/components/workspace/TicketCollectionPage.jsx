@@ -1,3 +1,21 @@
+/**
+ * @fileoverview Trang danh sách và theo dõi ticket dành cho Người dùng cuối (Ticket Collection Workspace).
+ *
+ * Mục đích & vai trò:
+ * - Thuộc nhóm Ticket Collection Workspace (Cổng tự phục vụ IT), giúp nhân viên tìm kiếm, lọc
+ *   và theo dõi tiến độ xử lý các ticket mà mình đã tạo.
+ * - Hỗ trợ lọc nhanh (Tất Cả, P1 - Khẩn Cấp, Đang Xử Lý), lọc chi tiết theo trạng thái/mức độ,
+ *   hiển thị responsive (thẻ danh sách trên mobile và bảng 7 cột trên desktop `xl`) cùng phân trang.
+ *
+ * Props:
+ * - `eyebrow` {string}: Nhãn nhỏ phía trên tiêu đề trang.
+ * - `title` {string}: Tiêu đề trang.
+ * - `description` {string}: Dòng mô tả dưới tiêu đề.
+ * - `actionLabel` {string}: Nhãn nút đi tới chi tiết ticket.
+ * - `headerAction` {ReactNode}: Phần tử hành động tùy chọn ở góc phải header (ví dụ nút Tạo Ticket).
+ * - `emptyMessage` {string}: Thông báo khi không có ticket phù hợp.
+ * - `allowedStatuses` {Array<string>}: Tập trạng thái mặc định cho trang hiện tại nếu chưa lọc cụ thể.
+ */
 import {
   ChevronLeft,
   ChevronRight,
@@ -15,6 +33,7 @@ import { TicketPriorityBadge, TicketStatusBadge } from "../ticket/TicketBadges.j
 import TicketListErrorState from "../ticket/TicketListErrorState.jsx";
 import TicketListSkeleton from "../ticket/TicketListSkeleton.jsx";
 
+// Bộ định dạng ngày hiển thị theo chuẩn Việt Nam và múi giờ Asia/Ho_Chi_Minh
 const formatter = new Intl.DateTimeFormat("vi-VN", {
   day: "2-digit",
   month: "2-digit",
@@ -22,6 +41,9 @@ const formatter = new Intl.DateTimeFormat("vi-VN", {
   timeZone: "Asia/Ho_Chi_Minh",
 });
 
+/**
+ * Component trang bộ sưu tập ticket dùng chung cho các route portal của nhân viên.
+ */
 function TicketCollectionPage({
   eyebrow = "Cổng tự phục vụ IT",
   title = "Yêu cầu của tôi",
@@ -31,11 +53,13 @@ function TicketCollectionPage({
   emptyMessage = "Không có ticket phù hợp.",
   allowedStatuses,
 }) {
+  // State lưu các tiêu chí lọc danh sách và số trang hiện tại
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");
   const [page, setPage] = useState(1);
 
+  // Xây dựng tham số truy vấn cho hook useTicketList; giới hạn 8 ticket mỗi trang
   const query = useMemo(
     () => ({
       search: search.trim(),
@@ -55,15 +79,18 @@ function TicketCollectionPage({
     [allowedStatuses, page, priority, search, status],
   );
 
+  // Tải danh sách ticket của người dùng hiện tại qua React Query
   const ticketList = useTicketList(query);
   const tickets = ticketList.data?.tickets ?? [];
   const pagination = ticketList.data?.pagination;
 
+  // Hàm trợ giúp cập nhật bộ lọc và luôn đưa phân trang về trang đầu tiên
   function updateFilter(setter, value) {
     setter(value);
     setPage(1);
   }
 
+  // Khôi phục toàn bộ bộ lọc tìm kiếm về trạng thái ban đầu
   function resetFilters() {
     setSearch("");
     setStatus("");
@@ -73,14 +100,17 @@ function TicketCollectionPage({
 
   return (
     <section>
+      {/* Tiêu đề trang danh sách ticket của nhân viên và nút hành động header (nếu có) */}
       <WorkspacePageHeader
         eyebrow={eyebrow}
         title={title}
         description={description}
         actions={headerAction}
       />
+      {/* Thanh lọc nhanh và tìm kiếm ticket */}
       <div className="rounded-xl border border-brand-bone bg-white p-3.5 shadow-xs">
         <div className="flex flex-col items-stretch justify-between gap-3 lg:flex-row lg:items-center">
+          {/* Nhóm nút lọc nhanh: Tất Cả, P1 - Khẩn Cấp, Đang Xử Lý */}
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
@@ -176,6 +206,7 @@ function TicketCollectionPage({
         </div>
       </div>
 
+      {/* Vùng hiển thị kết quả: Loading Skeleton, Error State hoặc Danh sách Ticket */}
       <div className="mt-4" aria-busy={ticketList.isLoading}>
         {ticketList.isLoading ? <TicketListSkeleton /> : null}
 
@@ -190,6 +221,7 @@ function TicketCollectionPage({
           <section className="overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs">
             {tickets.length ? (
               <>
+                {/* Giao diện dạng thẻ trên màn hình nhỏ hơn xl */}
                 <ul className="divide-y divide-brand-bone xl:hidden">
                   {tickets.map((ticket) => {
                     const sla = getSlaDisplayForTicket(ticket);
@@ -251,6 +283,7 @@ function TicketCollectionPage({
                   })}
                 </ul>
 
+                {/* Bảng danh sách 7 cột trên màn hình desktop (xl trở lên) */}
                 <div className="hidden overflow-x-auto xl:block">
                   <table className="w-full min-w-[68rem] text-left">
                     <thead>

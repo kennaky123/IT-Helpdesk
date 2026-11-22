@@ -1,5 +1,17 @@
+/**
+ * @file categoryService.js
+ * @description Service truy vấn danh mục sự cố đang hoạt động và xử lý lỗi liên quan đến danh mục.
+ * Vai trò trong kiến trúc Frontend: Thuộc tầng API Services, phục vụ dữ liệu lựa chọn danh mục
+ * cho form tạo ticket và bộ lọc danh sách ticket.
+ */
 import axiosClient from "../api/axiosClient.js";
 
+/**
+ * Kiểm tra cấu trúc tối thiểu của một bản ghi danh mục nhận từ API.
+ *
+ * @param {unknown} category - Đối tượng danh mục thô.
+ * @returns {boolean} `true` nếu có `_id` hợp lệ và `name` không rỗng.
+ */
 function isValidCategory(category) {
   return Boolean(
     category &&
@@ -9,20 +21,33 @@ function isValidCategory(category) {
   );
 }
 
+/**
+ * Tạo đối tượng lỗi chuẩn khi dữ liệu danh mục từ server sai định dạng.
+ *
+ * @returns {Error & { code: string }} Lỗi gắn mã `"INVALID_CATEGORY_RESPONSE"`.
+ */
 function createInvalidCategoryResponseError() {
   const error = new Error("Phản hồi danh mục không hợp lệ.");
   error.code = "INVALID_CATEGORY_RESPONSE";
   return error;
 }
 
+/**
+ * Lấy danh sách tất cả danh mục sự cố đang được kích hoạt.
+ *
+ * @param {{ signal?: AbortSignal }} [options] - Tùy chọn hủy request từ React Query.
+ * @returns {Promise<Array<{ id: string, name: string, slug: string, description: string }>>} Danh sách danh mục đã chuẩn hóa.
+ */
 export async function getActiveCategories({ signal } = {}) {
   const response = await axiosClient.get("/categories", { signal });
   const categories = response.data?.data?.categories;
 
+  // Bảo đảm phản hồi là mảng và mọi phần tử đều vượt qua kiểm tra schema cơ bản
   if (!Array.isArray(categories) || !categories.every(isValidCategory)) {
     throw createInvalidCategoryResponseError();
   }
 
+  // Ánh xạ sang cấu trúc đồng nhất cho UI (`_id` -> `id`, trim khoảng trắng thừa ở `name`)
   return categories.map((category) => ({
     id: category._id,
     name: category.name.trim(),
@@ -32,7 +57,14 @@ export async function getActiveCategories({ signal } = {}) {
   }));
 }
 
+/**
+ * Chuyển đổi lỗi tải danh mục thành thông điệp tiếng Việt phù hợp để hiển thị cho người dùng.
+ *
+ * @param {any} error - Lỗi nhận được từ axios hoặc validator.
+ * @returns {string} Chuỗi thông báo lỗi (trả chuỗi rỗng nếu request bị hủy chủ động).
+ */
 export function getCategoryErrorMessage(error) {
+  // Request bị AbortController hủy khi unmount không phải lỗi cần báo cho người dùng
   if (error?.code === "ERR_CANCELED") {
     return "";
   }

@@ -1,3 +1,14 @@
+/**
+ * Ngăn kéo trượt bên phải (Drawer) hiển thị thông tin chi tiết của một người dùng trong module quản lý User của Admin.
+ * Hiển thị hồ sơ cá nhân, thống kê hoạt động, các ticket gần đây và cung cấp các nút thao tác nhanh (sửa, khóa/mở khóa, xóa).
+ *
+ * Props:
+ * - user: Đối tượng người dùng đang được chọn để xem chi tiết.
+ * - onClose: Callback đóng drawer.
+ * - onEdit: Callback mở modal chỉnh sửa người dùng (tùy chọn).
+ * - onToggleLock: Callback khóa hoặc mở khóa tài khoản người dùng (tùy chọn).
+ * - onDelete: Callback xóa tài khoản người dùng (tùy chọn).
+ */
 import {
   CalendarDays,
   Clock3,
@@ -20,13 +31,21 @@ import { formatUserDate, formatUserDateTime, getInitials } from "../../../utils/
 import { getTicketStatusLabel } from "../../../utils/ticketPermissions.js";
 import { Button } from "../../ui/button.jsx";
 
+/**
+ * Component drawer xem chi tiết tài khoản người dùng, render thông qua React Portal gắn vào document.body.
+ */
 function UserDetailDrawer({ user, onClose, onEdit, onToggleLock, onDelete }) {
+  // ID duy nhất liên kết thuộc tính aria-labelledby của dialog với tiêu đề
   const titleId = useId();
+  // Ref tham chiếu đến nút đóng để focus tự động khi mở drawer
   const closeRef = useRef(null);
+  // Tra cứu nhãn và màu sắc hiển thị theo trạng thái và vai trò của user
   const status = USER_STATUS[user.status] ?? USER_STATUS.unverified;
   const role = USER_ROLE[user.role] ?? USER_ROLE.user;
+  // Chọn icon mở khóa nếu tài khoản đang bị khóa, ngược lại dùng icon khóa
   const LockIcon = user.status === "locked" ? UnlockKeyhole : LockKeyhole;
 
+  // Effect quản lý khả năng truy cập (accessibility): khóa cuộn nền, gán phím Escape, quản lý và khôi phục focus
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     const previousFocus = document.activeElement;
@@ -43,6 +62,7 @@ function UserDetailDrawer({ user, onClose, onEdit, onToggleLock, onDelete }) {
 
   return createPortal(
     <div className="fixed inset-0 z-[100]">
+      {/* Lớp nền mờ phía sau, bấm vào sẽ đóng drawer */}
       <motion.button
         type="button"
         initial={{ opacity: 0 }}
@@ -52,6 +72,7 @@ function UserDetailDrawer({ user, onClose, onEdit, onToggleLock, onDelete }) {
         onClick={onClose}
         aria-label="Đóng thông tin người dùng"
       />
+      {/* Khung drawer trượt từ cạnh phải màn hình */}
       <motion.aside
         role="dialog"
         aria-modal="true"
@@ -61,12 +82,15 @@ function UserDetailDrawer({ user, onClose, onEdit, onToggleLock, onDelete }) {
         transition={{ type: "spring", stiffness: 360, damping: 34 }}
         className="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col bg-white shadow-2xl"
       >
+        {/* Đầu drawer */}
         <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-6">
           <div><p className="text-xs font-semibold tracking-wider text-blue-700 uppercase">Chi tiết tài khoản</p><h2 id={titleId} className="mt-1 text-xl font-bold text-slate-900">Thông tin người dùng</h2></div>
           <button ref={closeRef} type="button" onClick={onClose} className="flex size-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Đóng"><X className="size-5" /></button>
         </header>
 
+        {/* Nội dung chính có thể cuộn dọc */}
         <div className="min-h-0 flex-1 overflow-y-auto bg-[#F6F8FC] p-5 sm:p-6">
+          {/* Thẻ thông tin hồ sơ cá nhân và liên hệ */}
           <section className="rounded-xl border border-[#E2E8F0] bg-white p-5">
             <div className="flex items-center gap-4">
               <span className="flex size-16 shrink-0 items-center justify-center rounded-2xl bg-blue-100 text-xl font-bold text-blue-700">{getInitials(user.fullName)}</span>
@@ -79,12 +103,14 @@ function UserDetailDrawer({ user, onClose, onEdit, onToggleLock, onDelete }) {
             </dl>
           </section>
 
+          {/* Lưới 3 thẻ thống kê hoạt động tài khoản */}
           <section className="mt-4 grid gap-4 sm:grid-cols-3" aria-label="Hoạt động tài khoản">
             <article className="rounded-xl border border-[#E2E8F0] bg-white p-4"><CalendarDays className="size-5 text-blue-600" /><p className="mt-3 text-xs text-slate-500">Ngày đăng ký</p><p className="mt-1 text-sm font-semibold text-slate-800">{formatUserDate(user.createdAt)}</p></article>
             <article className="rounded-xl border border-[#E2E8F0] bg-white p-4"><Clock3 className="size-5 text-violet-600" /><p className="mt-3 text-xs text-slate-500">Đăng nhập gần nhất</p><p className="mt-1 text-sm font-semibold leading-5 text-slate-800">{formatUserDateTime(user.lastLoginAt)}</p></article>
             <article className="rounded-xl border border-[#E2E8F0] bg-white p-4"><Ticket className="size-5 text-emerald-600" /><p className="mt-3 text-xs text-slate-500">Tổng yêu cầu</p><p className="mt-1 text-xl font-bold text-slate-900">{user.ticketCount}</p></article>
           </section>
 
+          {/* Danh sách các ticket yêu cầu hỗ trợ gần đây của người dùng */}
           <section className="mt-4 overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
             <div className="border-b border-slate-200 px-5 py-4"><h3 className="font-bold text-slate-900">Yêu cầu gần đây</h3><p className="mt-1 text-xs text-slate-500">Các ticket mới nhất do người dùng tạo</p></div>
             {user.recentTickets?.length ? (
@@ -129,6 +155,7 @@ function UserDetailDrawer({ user, onClose, onEdit, onToggleLock, onDelete }) {
           </section>
         </div>
 
+        {/* Chân drawer chứa các nút thao tác quản trị (chỉ hiện khi có callback tương ứng) */}
         <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white px-5 py-3.5 sm:px-6">
           {onEdit ? (
             <Button

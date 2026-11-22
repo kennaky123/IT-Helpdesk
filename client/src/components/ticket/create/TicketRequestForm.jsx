@@ -1,3 +1,12 @@
+/**
+ * TicketRequestForm.jsx
+ *
+ * Chức năng: Biểu mẫu tạo mới yêu cầu hỗ trợ IT (ticket) với đầy đủ tính năng nhập liệu,
+ * kiểm tra hợp lệ qua Zod, đính kèm/xem trước ảnh, gợi ý tự khắc phục theo danh mục và theo dõi tiến độ upload.
+ * Props: Không nhận props (tự tải danh mục, kỹ thuật viên qua hook và điều hướng sau khi tạo xong).
+ * Vai trò: Thành phần trung tâm của luồng tạo mới ticket; trước khi gọi API tạo ticket,
+ * nếu phát hiện hướng dẫn khắc phục phù hợp sẽ bật `TroubleshootingConfirmationModal` để người dùng tự kiểm tra trước.
+ */
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, LoaderCircle, RefreshCw, Send, Sparkles } from "lucide-react";
@@ -22,6 +31,7 @@ import ImageAttachmentField from "./ImageAttachmentField.jsx";
 import { getTroubleshootingGuidesForTicket } from "../../../data/troubleshootingGuides.js";
 import TroubleshootingConfirmationModal from "./TroubleshootingConfirmationModal.jsx";
 
+// Giá trị mặc định khởi tạo cho các trường trong form tạo ticket (đóng băng để tránh sửa nhầm)
 const INITIAL_VALUES = Object.freeze({
   title: "",
   category: "",
@@ -30,13 +40,16 @@ const INITIAL_VALUES = Object.freeze({
   description: "",
 });
 
+// Class CSS chuẩn dùng chung cho các ô input, select và textarea của biểu mẫu
 const inputClassName =
   "mt-1.5 w-full rounded-xl border border-brand-bone bg-brand-mist px-3.5 py-2.5 text-sm text-brand-ink outline-none transition placeholder:text-brand-ash focus:border-brand-violet focus:bg-white focus:ring-2 focus:ring-brand-violet/20 disabled:cursor-not-allowed disabled:opacity-60";
 
+// Helper tạo chữ ký nhận diện tệp ảnh theo tên, dung lượng và thời điểm sửa đổi để chặn chọn trùng
 function getFileSignature(file) {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
+// Helper sinh mã định danh duy nhất cho từng ảnh đính kèm để dùng làm key trong danh sách preview
 function createAttachmentId() {
   return (
     globalThis.crypto?.randomUUID?.() ??
@@ -44,6 +57,7 @@ function createAttachmentId() {
   );
 }
 
+// Sub-component hiển thị dấu sao đỏ đánh dấu trường bắt buộc nhập kèm văn bản ẩn cho screen reader
 function RequiredMark() {
   return (
     <>
@@ -55,29 +69,36 @@ function RequiredMark() {
   );
 }
 
+// Component biểu mẫu tạo yêu cầu hỗ trợ IT chính
 function TicketRequestForm() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  // Tải danh sách danh mục đang hoạt động cho dropdown chọn loại sự cố
   const {
     categories,
     error: categoryError,
     isLoading,
     refetch,
   } = useActiveCategories();
+  // Tải danh sách kỹ thuật viên đang hoạt động để người dùng có thể chỉ định trước (tùy chọn)
   const {
     technicians,
     isLoading: techniciansLoading,
   } = useActiveTechnicians(true);
+  // State quản lý lỗi ảnh đính kèm, danh sách ảnh preview, lỗi API và trạng thái đang gửi/upload
   const [attachmentError, setAttachmentError] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [apiError, setApiError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
+  // State bật/tắt modal hướng dẫn tự kiểm tra khắc phục trước khi gửi ticket
   const [showTroubleshootModal, setShowTroubleshootModal] = useState(false);
+  // Refs hỗ trợ focus vào khối lỗi API, hủy request đang chạy và quản lý tập Blob URL cần thu hồi
   const apiErrorRef = useRef(null);
   const requestControllerRef = useRef(null);
   const previewUrlsRef = useRef(new Set());
 
+  // Khởi tạo React Hook Form kết hợp Zod schema; validate khi trường đã được chạm (onTouched)
   const {
     register,
     control,
@@ -91,6 +112,7 @@ function TicketRequestForm() {
     mode: "onTouched",
   });
 
+  // Theo dõi giá trị các trường theo thời gian thực để đếm ký tự, hiển thị mô tả priority và tìm hướng dẫn gợi ý
   const watchedTitle = useWatch({ control, name: "title", defaultValue: "" });
   const watchedCategory = useWatch({
     control,
@@ -108,12 +130,14 @@ function TicketRequestForm() {
     defaultValue: "",
   });
 
+  // Tìm đối tượng danh mục đầy đủ tương ứng với ID danh mục đang chọn
   const selectedCategoryObj = useMemo(() => {
     return (
       categories.find((category) => category.id === watchedCategory) || null
     );
   }, [categories, watchedCategory]);
 
+  // Lọc và xếp hạng các hướng dẫn tự khắc phục phù hợp dựa theo danh mục, tiêu đề và mô tả sự cố
   const relevantGuides = useMemo(() => {
     if (!selectedCategoryObj) return [];
     return getTroubleshootingGuidesForTicket({
@@ -123,6 +147,7 @@ function TicketRequestForm() {
     });
   }, [selectedCategoryObj, watchedTitle, watchedDescription]);
 
+  // Effect dọn dẹp khi component bị hủy: abort request gửi ticket đang chạy và giải phóng toàn bộ Blob URL preview
   useEffect(() => {
     const previewUrls = previewUrlsRef.current;
 
@@ -133,6 +158,7 @@ function TicketRequestForm() {
     };
   }, []);
 
+  // Handler xử lý danh sách file ảnh người dùng vừa chọn/thả: kiểm tra định dạng, dung lượng, trùng lặp và giới hạn số lượng
   function handleFilesSelected(files) {
     if (files.length === 0) {
       return;
@@ -149,6 +175,7 @@ function TicketRequestForm() {
     const rejectedMessages = [];
 
     files.forEach((file) => {
+      // Kiểm tra định dạng MIME (JPEG/PNG/WebP), file rỗng và giới hạn dung lượng (MB)
       const validationMessage = validateImageFile(
         file,
         clientEnv.maxFileSizeMb,
@@ -160,11 +187,13 @@ function TicketRequestForm() {
         return;
       }
 
+      // Chặn thêm trùng ảnh đã có trong danh sách đính kèm hiện tại
       if (currentSignatures.has(signature)) {
         rejectedMessages.push(`${file.name}: ảnh này đã được chọn.`);
         return;
       }
 
+      // Chặn thêm nếu vượt quá số lượng ảnh tối đa mỗi ticket
       if (acceptedAttachments.length >= availableSlots) {
         if (!rejectedMessages.some((message) => message.includes("tối đa"))) {
           rejectedMessages.push(
@@ -174,6 +203,7 @@ function TicketRequestForm() {
         return;
       }
 
+      // Tạo Blob URL tạm để hiển thị ảnh xem trước và lưu vào ref để chủ động thu hồi sau
       const previewUrl = URL.createObjectURL(file);
       previewUrlsRef.current.add(previewUrl);
       currentSignatures.add(signature);
@@ -195,6 +225,7 @@ function TicketRequestForm() {
     setApiError(null);
   }
 
+  // Handler xóa một ảnh khỏi danh sách đính kèm và giải phóng ngay Blob URL xem trước của ảnh đó
   function handleRemoveAttachment(attachmentId) {
     setAttachments((currentAttachments) => {
       const attachment = currentAttachments.find(
@@ -211,6 +242,7 @@ function TicketRequestForm() {
     setAttachmentError("");
   }
 
+  // Handler sau khi form vượt qua validation của Zod: kiểm tra danh mục hợp lệ và quyết định mở modal tự kiểm tra hay gửi ngay
   function onValidSubmit(formData) {
     if (isSubmitting) {
       return;
@@ -218,6 +250,7 @@ function TicketRequestForm() {
 
     setApiError(null);
 
+    // Đảm bảo danh mục người dùng chọn vẫn còn nằm trong danh sách danh mục đang hoạt động
     if (
       formData.category &&
       !categories.some((category) => category.id === formData.category)
@@ -239,8 +272,10 @@ function TicketRequestForm() {
     executeSubmitTicket({ formData });
   }
 
+  // Thực thi gọi API tạo ticket kèm ảnh đính kèm, theo dõi phần trăm upload và xử lý phản hồi/lỗi
   async function executeSubmitTicket({ confirmedNewIssue = false, formData } = {}) {
     const payload = formData ?? getValues();
+    // Tạo AbortController riêng cho request hiện tại để hủy sạch nếu người dùng rời trang giữa chừng
     const abortController = new AbortController();
     requestControllerRef.current = abortController;
     setIsSubmitting(true);
@@ -252,6 +287,7 @@ function TicketRequestForm() {
       : payload.description;
 
     try {
+      // Gọi service tạo ticket dạng multipart/form-data và cập nhật phần trăm tiến độ tải ảnh
       const result = await createTicket(
         { ...payload, description: finalDescription, attachments },
         {
@@ -271,6 +307,7 @@ function TicketRequestForm() {
         },
       );
 
+      // Tạo ticket thành công: thu hồi toàn bộ Blob URL preview, làm mới cache danh sách/dashboard và điều hướng tới ticket mới
       previewUrlsRef.current.forEach((previewUrl) =>
         URL.revokeObjectURL(previewUrl),
       );
@@ -280,13 +317,16 @@ function TicketRequestForm() {
       toast.success(result.message || "Tạo yêu cầu thành công.");
       navigate(`/user/tickets/${result.ticket._id}`, { replace: true });
     } catch (error) {
+      // Bỏ qua nếu request bị hủy chủ động khi unmount
       if (error.code === "ERR_CANCELED") {
         return;
       }
 
+      // Chuẩn hóa thông báo lỗi từ server và đưa focus bàn phím về hộp thông báo lỗi
       setApiError(getCreateTicketError(error));
       window.requestAnimationFrame(() => apiErrorRef.current?.focus());
     } finally {
+      // Chỉ dọn trạng thái nếu controller hiện tại vẫn là request mới nhất
       if (requestControllerRef.current === abortController) {
         requestControllerRef.current = null;
         setIsSubmitting(false);
@@ -295,6 +335,7 @@ function TicketRequestForm() {
     }
   }
 
+  // Handler khi người dùng xác nhận đã tự sửa được lỗi qua modal hướng dẫn: đóng modal, thông báo và quay về trang tổng quan
   function handleSelfResolved() {
     setShowTroubleshootModal(false);
     toast.success(
@@ -304,11 +345,13 @@ function TicketRequestForm() {
     navigate("/user/overview");
   }
 
+  // Handler khi người dùng đã xem hướng dẫn nhưng vẫn chưa xử lý được: đóng modal và gửi ticket kèm ghi chú tự kiểm tra
   function handleConfirmSendToHelpDesk() {
     setShowTroubleshootModal(false);
     executeSubmitTicket({ confirmedNewIssue: true, formData: getValues() });
   }
 
+  // Thông báo lỗi tải danh mục và cờ khóa tính năng chọn danh mục/submit khi danh mục chưa sẵn sàng
   const categoryErrorMessage = categoryError
     ? getCategoryErrorMessage(categoryError)
     : "";
@@ -322,9 +365,11 @@ function TicketRequestForm() {
       onSubmit={(event) => handleSubmit(onValidSubmit)(event)}
       className="overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs"
     >
+      {/* Nhóm các trường nhập liệu, tự khóa toàn bộ khi biểu mẫu đang gửi lên server */}
       <fieldset disabled={isSubmitting} className="space-y-5 p-5 sm:p-6">
         <legend className="sr-only">Thông tin yêu cầu hỗ trợ</legend>
 
+        {/* Trường nhập tiêu đề sự cố kèm bộ đếm tối đa 200 ký tự */}
         <div>
           <label
             htmlFor="ticket-title"
@@ -357,7 +402,9 @@ function TicketRequestForm() {
           ) : null}
         </div>
 
+        {/* Hàng 3 cột: chọn danh mục sự cố, mức độ ưu tiên và kỹ thuật viên phụ trách (tùy chọn) */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Cột 1: Dropdown danh mục sự cố kèm thông báo lỗi tải & nút tải lại */}
           <div>
             <label
               htmlFor="ticket-category"
@@ -416,6 +463,7 @@ function TicketRequestForm() {
             ) : null}
           </div>
 
+          {/* Cột 2: Dropdown mức độ ưu tiên kèm giải thích mức độ ảnh hưởng tương ứng */}
           <div>
             <label
               htmlFor="ticket-priority"
@@ -449,6 +497,7 @@ function TicketRequestForm() {
             </p>
           </div>
 
+          {/* Cột 3: Dropdown chọn kỹ thuật viên phụ trách (không bắt buộc) */}
           <div>
             <label
               htmlFor="ticket-technician"
@@ -488,6 +537,7 @@ function TicketRequestForm() {
           </div>
         </div>
 
+        {/* Banner gợi ý trợ lý tự phục vụ, xuất hiện khi danh mục chọn có hướng dẫn sửa lỗi tương ứng */}
         {selectedCategoryObj && relevantGuides.length > 0 && (
           <div className="rounded-xl border border-purple-200 bg-purple-50/70 p-4 text-xs text-brand-onyx flex items-start gap-3 shadow-2xs">
             <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-brand-violet text-white">
@@ -513,6 +563,7 @@ function TicketRequestForm() {
           </div>
         )}
 
+        {/* Trường nhập mô tả chi tiết sự cố kèm bộ đếm tối đa 5000 ký tự */}
         <div>
           <label
             htmlFor="ticket-description"
@@ -552,6 +603,7 @@ function TicketRequestForm() {
           ) : null}
         </div>
 
+        {/* Vùng chọn, kéo-thả và xem trước hình ảnh đính kèm */}
         <ImageAttachmentField
           attachments={attachments}
           disabled={isSubmitting}
@@ -562,6 +614,7 @@ function TicketRequestForm() {
           onRemove={handleRemoveAttachment}
         />
 
+        {/* Khối thông báo lỗi trả về từ API khi tạo ticket thất bại */}
         {apiError ? (
           <div
             ref={apiErrorRef}
@@ -590,6 +643,7 @@ function TicketRequestForm() {
         ) : null}
       </fieldset>
 
+      {/* Thanh hành động chân form: hủy quay lại danh sách hoặc gửi tạo ticket (kèm % tiến độ upload) */}
       <div className="flex flex-col-reverse gap-2.5 border-t border-brand-bone bg-brand-mist/50 px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:px-6">
         <button
           type="button"
@@ -617,6 +671,7 @@ function TicketRequestForm() {
         </button>
       </div>
 
+      {/* Modal tự kiểm tra hướng dẫn khắc phục nhanh trước khi xác nhận gửi ticket lên IT Help Desk */}
       {showTroubleshootModal && (
         <TroubleshootingConfirmationModal
           categoryName={selectedCategoryObj?.name || "Sự cố kỹ thuật"}

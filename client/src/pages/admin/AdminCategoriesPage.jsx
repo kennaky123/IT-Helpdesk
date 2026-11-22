@@ -1,3 +1,12 @@
+/**
+ * Trang Quản trị Danh mục Sự cố (Service Catalog).
+ *
+ * Vai trò trong hệ thống IT Helpdesk:
+ * - Cho phép quản trị viên (Admin) thiết lập, chỉnh sửa, bật/tắt trạng thái hiển thị
+ *   và xóa các nhóm danh mục sự cố CNTT (Service Catalog).
+ * - Các danh mục đang kích hoạt (active) sẽ hiển thị cho người dùng chọn khi tạo ticket mới,
+ *   làm cơ sở tự động định tuyến ticket tới bộ phận kỹ thuật và áp dụng chính sách SLA phù hợp.
+ */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Edit3,
@@ -23,33 +32,49 @@ import {
 } from "../../services/adminService.js";
 import { normalizeSearch } from "../../utils/adminUserFormatters.js";
 
+/**
+ * Component chính của trang quản lý danh mục sự cố dành cho Admin.
+ * Điều phối việc tải danh sách danh mục, tìm kiếm cục bộ và các thao tác CRUD qua React Query.
+ */
 function AdminCategoriesPage() {
+  // Client của React Query dùng để làm mới (invalidate) cache sau các thao tác thay đổi dữ liệu
   const queryClient = useQueryClient();
+  // Từ khóa tìm kiếm danh mục theo tên hoặc mô tả
   const [search, setSearch] = useState("");
+  // Danh mục đang mở form chỉnh sửa ({ id: null } nếu đang thêm mới, null nếu đóng form)
   const [editing, setEditing] = useState(null);
+  // Trạng thái dữ liệu nhập trong form thêm/sửa danh mục
   const [form, setForm] = useState({ name: "", description: "", active: true });
 
+  // Luồng lấy dữ liệu: truy vấn toàn bộ danh mục sự cố từ API quản trị (hỗ trợ AbortSignal)
   const { data: categories = [], error: listError } = useQuery({
     queryKey: ["admin", "categories"],
     queryFn: ({ signal }) => getAdminCategories({ signal }),
   });
 
+  // Theo dõi lỗi tải danh sách và hiển thị thông báo toast cho quản trị viên
   useEffect(() => {
     if (listError) {
       toast.error(getAdminErrorMessage(listError));
     }
   }, [listError]);
 
+  /**
+   * Làm mới cache React Query cho danh mục ở cả trang quản trị,
+   * trang tạo ticket của người dùng và các tùy chọn bộ lọc ticket.
+   */
   function invalidateCategories() {
     queryClient.invalidateQueries({ queryKey: ["admin", "categories"] });
     queryClient.invalidateQueries({ queryKey: ["categories"] });
     queryClient.invalidateQueries({ queryKey: ["tickets", "filter-options"] });
   }
 
+  // Mutation tạo mới hoặc cập nhật danh mục tùy thuộc vào sự tồn tại của id
   const saveMutation = useMutation({
     mutationFn: ({ id, values }) =>
       id ? updateAdminCategory(id, values) : createAdminCategory(values),
     onSuccess: (_saved, variables) => {
+      // Đồng bộ lại cache danh mục và đóng form sau khi lưu thành công
       invalidateCategories();
       setEditing(null);
       toast.success(
@@ -61,6 +86,7 @@ function AdminCategoriesPage() {
     },
   });
 
+  // Mutation bật/tắt nhanh trạng thái hoạt động (Đang sử dụng / Tạm ẩn) của một danh mục
   const toggleMutation = useMutation({
     mutationFn: (item) =>
       updateAdminCategory(item.id, { ...item, active: !item.active }),
@@ -70,6 +96,7 @@ function AdminCategoriesPage() {
     },
   });
 
+  // Mutation xóa vĩnh viễn danh mục khỏi hệ thống và làm mới cache liên quan
   const deleteMutation = useMutation({
     mutationFn: (item) => deleteAdminCategory(item.id),
     onSuccess: () => {
@@ -81,6 +108,7 @@ function AdminCategoriesPage() {
     },
   });
 
+  // Lọc danh sách danh mục phía client theo tên và mô tả (chuẩn hóa bỏ dấu, không phân biệt hoa/thường)
   const filtered = useMemo(
     () =>
       categories.filter((item) =>
@@ -91,6 +119,9 @@ function AdminCategoriesPage() {
     [categories, search],
   );
 
+  /**
+   * Mở form thêm mới hoặc chỉnh sửa danh mục và khởi tạo giá trị cho state form.
+   */
   function openForm(category) {
     setEditing(category || { id: null });
     setForm(
@@ -104,6 +135,9 @@ function AdminCategoriesPage() {
     );
   }
 
+  /**
+   * Xử lý submit form lưu danh mục sau khi kiểm tra hợp lệ độ dài tên danh mục.
+   */
   function save(event) {
     event.preventDefault();
     if (form.name.trim().length < 2) {
@@ -113,10 +147,16 @@ function AdminCategoriesPage() {
     saveMutation.mutate({ id: editing.id, values: form });
   }
 
+  /**
+   * Kích hoạt mutation đảo trạng thái kích hoạt (active) của danh mục được chọn.
+   */
   function toggleCategory(item) {
     toggleMutation.mutate(item);
   }
 
+  /**
+   * Xử lý xóa danh mục: ngăn xóa nếu danh mục đã phát sinh ticket để bảo toàn dữ liệu lịch sử.
+   */
   function removeCategory(item) {
     if (item.tickets > 0) {
       toast.warning(
@@ -127,10 +167,12 @@ function AdminCategoriesPage() {
     deleteMutation.mutate(item);
   }
 
+  // Cờ biểu thị trạng thái đang gửi request lưu danh mục để khóa nút submit
   const saving = saveMutation.isPending;
 
   return (
     <section>
+      {/* Tiêu đề trang và nút mở form thêm danh mục mới */}
       <WorkspacePageHeader
         eyebrow="Quản trị phân loại dịch vụ CNTT"
         title="Danh mục sự cố (Service Catalog)"
@@ -143,6 +185,7 @@ function AdminCategoriesPage() {
         }
       />
 
+      {/* Lưới thẻ thống kê nhanh số lượng danh mục theo trạng thái */}
       <div className="grid gap-4 sm:grid-cols-3">
         <WorkspaceStatCard
           icon={Tags}
@@ -166,6 +209,7 @@ function AdminCategoriesPage() {
         />
       </div>
 
+      {/* Form inline thêm mới hoặc chỉnh sửa danh mục khi state editing khác null */}
       {editing ? (
         <form
           onSubmit={save}
@@ -210,6 +254,7 @@ function AdminCategoriesPage() {
         </form>
       ) : null}
 
+      {/* Thanh tìm kiếm danh mục theo thời gian thực */}
       <div className="mt-6 rounded-xl border border-brand-bone bg-white p-3.5 shadow-xs">
         <label className="relative block max-w-xl">
           <Search className="absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-brand-ash" />
@@ -222,7 +267,9 @@ function AdminCategoriesPage() {
         </label>
       </div>
 
+      {/* Vùng hiển thị danh sách danh mục: bảng cho desktop (md+) và dạng thẻ cho mobile */}
       <div className="mt-4 overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs">
+        {/* Bảng danh mục trên màn hình lớn */}
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[50rem] text-left">
             <thead className="border-b border-brand-bone bg-brand-mist/70 text-[11px] font-bold tracking-wider text-brand-slate uppercase">
@@ -294,6 +341,7 @@ function AdminCategoriesPage() {
             </tbody>
           </table>
         </div>
+        {/* Danh sách dạng thẻ tối ưu hiển thị trên màn hình nhỏ */}
         <ul className="divide-y divide-brand-bone md:hidden">
           {filtered.map((item) => (
             <li key={item.id} className="p-4">

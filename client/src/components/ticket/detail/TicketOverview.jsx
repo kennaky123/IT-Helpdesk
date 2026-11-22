@@ -1,3 +1,16 @@
+/**
+ * @file TicketOverview.jsx
+ * @description Tập hợp hai component hiển thị thông tin tổng quan của ticket trong màn hình chi tiết ticket:
+ * - `TicketMetadataCard`: Hiển thị ở cột bên phải gồm thông tin người yêu cầu, metadata ticket,
+ *   tra cứu thiết bị cấp phát từ CMDB và nút kết nối/cấu hình Remote Support (AnyDesk / TeamViewer)
+ *   dành riêng cho kỹ thuật viên và admin.
+ * - `TicketDescriptionCard`: Hiển thị ở cột nội dung chính gồm mô tả sự cố gốc, dấu hiệu tự kiểm tra
+ *   theo hướng dẫn danh mục, khối giải pháp khắc phục chính thức (`resolution`) và thông báo hủy ticket.
+ *
+ * Props chung cho cả hai component:
+ * - `ticket` {Object}: Đối tượng ticket hiện tại chứa `createdBy`, `category`, `assignedTo`, `description`,
+ *   `resolution`, `status`, `cancellationReason`, các mốc thời gian `createdAt`, `assignedAt`, `resolvedAt`, `cancelledAt`.
+ */
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Monitor, Sparkles } from "lucide-react";
@@ -8,6 +21,11 @@ import { getAssets, launchRemoteDesktop } from "../../../services/assetService.j
 import RemoteConnectModal from "../../assets/RemoteConnectModal.jsx";
 import { Button } from "../../ui/button.jsx";
 
+/**
+ * Trích xuất tối đa 2 chữ cái viết tắt từ họ tên để hiển thị làm avatar người yêu cầu.
+ * @param {string} name
+ * @returns {string}
+ */
 function getInitials(name = "") {
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "NV";
@@ -15,27 +33,39 @@ function getInitials(name = "") {
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 }
 
+/**
+ * Thẻ thông tin người yêu cầu, metadata ticket và thiết bị CMDB kèm nút điều khiển từ xa (Remote Support).
+ */
 function TicketMetadataCard({ ticket }) {
+  // Lấy người dùng hiện tại để phân quyền sử dụng công cụ Remote Support
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  // State điều khiển mở/đóng modal cấu hình Remote ID khi thiết bị chưa có sẵn ID
   const [isRemoteModalOpen, setIsRemoteModalOpen] = useState(false);
+  // Chỉ Admin và Kỹ thuật viên mới được phép thấy nút kết nối hoặc cấu hình Remote Support (AnyDesk/TeamViewer)
   const canUseRemoteSupport =
     user?.role === "admin" || user?.role === "technician";
   const creatorId = ticket.createdBy?._id;
 
+  // Truy vấn danh sách thiết bị đang cấp phát cho người tạo ticket từ kho tài sản CMDB
   const { data: assetData, isLoading: isAssetLoading } = useQuery({
     queryKey: ["assets", "byUser", creatorId],
     queryFn: ({ signal }) => getAssets({ assignedTo: creatorId }, { signal }),
     enabled: Boolean(creatorId),
   });
 
+  // Lấy thiết bị đầu tiên đang được gán cho người yêu cầu
   const realAsset = assetData?.assets?.[0] ?? null;
 
+  // Chuẩn hóa thông tin hiển thị của người yêu cầu với giá trị dự phòng
   const requesterName = ticket.createdBy?.fullName ?? "Không xác định";
   const requesterDept =
     ticket.createdBy?.department || "Chưa cập nhật phòng ban";
   const requesterEmail = ticket.createdBy?.email || "Chưa cập nhật";
 
+  // Handler xử lý khi KTV/Admin nhấn nút Remote Support:
+  // - Nếu thiết bị đã có Remote ID: sao chép ID vào clipboard và mở deep-link AnyDesk/TeamViewer.
+  // - Nếu chưa có Remote ID: mở RemoteConnectModal để cấu hình lưu vào CMDB.
   async function handleRemoteClick() {
     if (!realAsset) return;
     if (realAsset.remoteId) {
@@ -184,6 +214,7 @@ function TicketMetadataCard({ ticket }) {
               </div>
             </div>
 
+            {/* Nút kết nối Remote Support (AnyDesk/TeamViewer) hoặc cấu hình Remote ID chỉ hiện cho KTV/Admin */}
             {canUseRemoteSupport ? (
               <div className="mt-3 flex gap-2">
                 <Button
@@ -205,6 +236,7 @@ function TicketMetadataCard({ ticket }) {
           </div>
         )}
 
+        {/* Modal cấu hình Remote ID cho thiết bị và tự động làm mới cache danh sách assets khi lưu xong */}
         {canUseRemoteSupport && isRemoteModalOpen && realAsset ? (
           <RemoteConnectModal
             asset={realAsset}
@@ -220,11 +252,15 @@ function TicketMetadataCard({ ticket }) {
   );
 }
 
+/**
+ * Thẻ hiển thị mô tả sự cố gốc của người dùng, giải pháp khắc phục chính thức và thông tin hủy ticket (nếu có).
+ */
 function TicketDescriptionCard({ ticket }) {
   const requesterName = ticket.createdBy?.fullName ?? "Người yêu cầu";
 
   return (
     <section className="rounded-xl border border-brand-bone bg-white p-5 shadow-2xs">
+      {/* Thông tin người tạo yêu cầu và thời gian khởi tạo ticket */}
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-ink text-xs font-bold text-white">
@@ -252,6 +288,7 @@ function TicketDescriptionCard({ ticket }) {
         </time>
       </div>
 
+      {/* Huy hiệu nhận diện người dùng đã thử các bước tự kiểm tra theo hướng dẫn danh mục trước khi gửi */}
       {ticket.description?.includes("[Đã tự thử kiểm tra theo hướng dẫn danh mục") ? (
         <div className="mb-3 ml-10 inline-flex items-center gap-1.5 rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-brand-violet">
           <Sparkles className="size-3.5" />
@@ -259,10 +296,12 @@ function TicketDescriptionCard({ ticket }) {
         </div>
       ) : null}
 
+      {/* Nội dung mô tả chi tiết sự cố ban đầu */}
       <p className="pl-10 text-sm leading-relaxed whitespace-pre-wrap wrap-break-word text-brand-ink">
         {ticket.description}
       </p>
 
+      {/* Khối hiển thị giải pháp khắc phục chính thức khi kỹ thuật viên đã ghi nhận resolution */}
       {ticket.resolution ? (
         <div className="mt-5 ml-10 rounded-xl border border-brand-emerald/30 bg-emerald-50/70 p-4">
           <h3 className="text-xs font-bold tracking-wider text-emerald-900 uppercase">
@@ -279,6 +318,7 @@ function TicketDescriptionCard({ ticket }) {
         </div>
       ) : null}
 
+      {/* Khối thông báo lý do và thời điểm hủy khi ticket ở trạng thái cancelled */}
       {ticket.status === "cancelled" ? (
         <div className="mt-5 ml-10 rounded-xl border border-red-200 bg-red-50 p-4">
           <h3 className="text-xs font-bold tracking-wider text-red-900 uppercase">

@@ -1,13 +1,33 @@
+/**
+ * Module chứa thành phần điều hướng dọc `SidebarContent` và export mặc định `Sidebar`.
+ *
+ * Props:
+ * - SidebarContent({ onNavigate }): `onNavigate` là callback tùy chọn được gọi khi bấm vào một mục menu (dùng để đóng MobileSidebar).
+ * - Sidebar(): Không nhận props.
+ *
+ * Vai trò trong UI Layout / Navigation:
+ * - `SidebarContent` render logo, danh sách mục điều hướng theo vai trò và thẻ thông tin vai trò/email ở chân drawer di động (`MobileSidebar`).
+ * - Trên màn hình desktop, thanh điều hướng đã chuyển thành dạng tab ngang trong `Header`, nên `Sidebar` trả về `null`.
+ */
 import { NavLink, useLocation } from "react-router-dom";
 import { getNavigationForRole } from "../../constants/navigation.js";
 import { getRoleLabel } from "../../constants/roles.js";
 import useAuth from "../../hooks/useAuth.js";
 
+/**
+ * Nội dung thanh điều hướng dọc gồm phần đầu thương hiệu, danh sách route theo vai trò và thẻ thông tin người dùng.
+ */
 function SidebarContent({ onNavigate }) {
   const { user } = useAuth();
   const location = useLocation();
+  // Lấy danh sách mục menu được phép truy cập dựa trên vai trò hiện tại của user.
   const navigationItems = getNavigationForRole(user?.role);
 
+  /**
+   * Xác định trạng thái active cho từng mục menu, bao gồm giữ sáng mục cha khi đang mở trang chi tiết ticket.
+   * - Với user: khi ở `/user/tickets/:id`, giữ sáng mục `/user/tickets`.
+   * - Với technician: khi ở `/technician/tickets/:id`, đối chiếu đường dẫn nguồn lưu trong `location.state?.navigationPath`.
+   */
   function isItemActive(item, routerIsActive) {
     if (routerIsActive) return true;
     if (user?.role === "user" && item.path === "/user/tickets") {
@@ -112,6 +132,10 @@ function SidebarContent({ onNavigate }) {
   );
 }
 
+/**
+ * Component Sidebar mặc định trả về `null` vì thanh điều hướng trên màn hình desktop
+ * đã được tích hợp thành dạng pill tabs ở `Header`, còn bản di động dùng `SidebarContent` trong `MobileSidebar`.
+ */
 function Sidebar() {
   return null;
 }

@@ -1,3 +1,12 @@
+/**
+ * @file seed.js
+ * @description Script khởi tạo dữ liệu mẫu (Database Seeding) phục vụ phát triển và kiểm thử toàn bộ hệ thống IT Helpdesk.
+ * Vai trò trong kiến trúc Backend:
+ * - Xóa dữ liệu cũ một cách an toàn (chặn nhầm database hệ thống hoặc môi trường production khi chưa có `--force`).
+ * - Tạo bộ dữ liệu đồng bộ và nhất quán giữa các phân hệ: tài khoản (Admin, Technician, User),
+ *   danh mục sự cố, 30 ticket phủ đủ 7 trạng thái & 4 mức ưu tiên, bình luận, đánh giá,
+ *   tài sản IT & yêu cầu cấp phát, bản quyền phần mềm và thiết bị/nhật ký bảo mật USB.
+ */
 import {
   connectDatabase,
   dbConnection,
@@ -16,8 +25,11 @@ import SoftwareLicense from "../models/SoftwareLicense.js";
 import UsbDevice from "../models/UsbDevice.js";
 import UsbEventLog from "../models/UsbEventLog.js";
 
+/** Mật khẩu mặc định áp dụng cho các tài khoản mẫu nếu không cấu hình `SEED_DEFAULT_PASSWORD`. */
 const DEFAULT_SEED_PASSWORD = "Helpdesk@123";
+/** Nhóm trạng thái đánh dấu ticket đã hoàn tất xử lý và có thể phát sinh đánh giá (Rating). */
 const COMPLETED_STATUSES = new Set(["resolved", "closed"]);
+/** Nhóm trạng thái yêu cầu ticket phải có Technician được phân công phụ trách. */
 const ASSIGNED_STATUSES = new Set([
   "assigned",
   "in_progress",
@@ -25,12 +37,14 @@ const ASSIGNED_STATUSES = new Set([
   "resolved",
   "closed",
 ]);
+/** Nhóm trạng thái cho biết Technician đã bắt đầu xử lý ticket (`startedAt`). */
 const STARTED_STATUSES = new Set([
   "in_progress",
   "waiting_user",
   "resolved",
   "closed",
 ]);
+/** Danh sách tên database hệ thống/nhạy cảm bị chặn xóa tự động nếu không truyền cờ `--force`. */
 const PROTECTED_DATABASE_NAMES = new Set([
   "admin",
   "config",
@@ -41,6 +55,7 @@ const PROTECTED_DATABASE_NAMES = new Set([
   "template1",
 ]);
 
+/** Bộ 6 danh mục sự cố IT Helpdesk mặc định được seed vào bảng `categories`. */
 const CATEGORY_DEFINITIONS = Object.freeze([
   {
     name: "Phần cứng",
@@ -74,6 +89,7 @@ const CATEGORY_DEFINITIONS = Object.freeze([
   },
 ]);
 
+/** Kho tiêu đề và mô tả sự cố mẫu chia theo từng slug danh mục (mỗi danh mục 5 mẫu). */
 const ISSUE_SAMPLES = Object.freeze({
   "phan-cung": Object.freeze([
     {
@@ -239,6 +255,7 @@ const ISSUE_SAMPLES = Object.freeze({
   ]),
 });
 
+/** Ma trận phân bố 30 ticket mẫu qua đầy đủ 7 trạng thái và 4 mức độ ưu tiên. */
 const STATUS_PRIORITY_DISTRIBUTION = Object.freeze([
   {
     status: "pending",
@@ -277,6 +294,7 @@ const STATUS_PRIORITY_DISTRIBUTION = Object.freeze([
   },
 ]);
 
+/** Tập nội dung nhận xét mẫu dùng khi seed đánh giá chất lượng xử lý ticket. */
 const RATING_FEEDBACK = Object.freeze([
   "Technician phản hồi nhanh và hướng dẫn rất rõ ràng.",
   "Sự cố được xử lý đúng yêu cầu, tôi hài lòng với kết quả.",
@@ -285,10 +303,21 @@ const RATING_FEEDBACK = Object.freeze([
   "Dịch vụ hỗ trợ tốt, thiết bị đã hoạt động ổn định trở lại.",
 ]);
 
+/**
+ * Tạo mốc thời gian mới bằng cách cộng/trừ số phút vào đối tượng Date gốc.
+ * @param {Date} date - Thời điểm gốc.
+ * @param {number} minutes - Số phút cần dịch chuyển (âm để lùi về quá khứ).
+ * @returns {Date} Đối tượng Date mới.
+ */
 function addMinutes(date, minutes) {
   return new Date(date.getTime() + minutes * 60_000);
 }
 
+/**
+ * Lấy năm hiện tại theo múi giờ Việt Nam (`Asia/Ho_Chi_Minh`) để sinh mã ticket `HD-YYYY-...`.
+ * @param {Date} date - Mốc thời gian tham chiếu.
+ * @returns {number} Năm dương lịch theo giờ Việt Nam.
+ */
 function getVietnamYear(date) {
   return Number(
     new Intl.DateTimeFormat("en-US", {
@@ -298,6 +327,12 @@ function getVietnamYear(date) {
   );
 }
 
+/**
+ * Lấy và kiểm tra độ dài mật khẩu chung dùng cho các tài khoản seed.
+ * Đảm bảo tối thiểu 8 ký tự và không vượt quá giới hạn 72 byte của thuật toán bcrypt.
+ * @throws {Error} Nếu mật khẩu cấu hình không hợp lệ.
+ * @returns {string} Mật khẩu plaintext trước khi lưu vào User model (sẽ tự bcrypt hash khi save).
+ */
 function getSeedPassword() {
   const password =
     process.env.SEED_DEFAULT_PASSWORD?.trim() || DEFAULT_SEED_PASSWORD;
@@ -312,7 +347,13 @@ function getSeedPassword() {
   return password;
 }
 
+/**
+ * Xây dựng danh sách 14 tài khoản mẫu gồm: 1 Admin, 3 Technician và 10 User thuộc các phòng ban khác nhau.
+ * @param {string} password - Mật khẩu dùng chung cho các tài khoản seed.
+ * @returns {Array<Object>} Mảng dữ liệu đầu vào cho `User.create`.
+ */
 function buildAccountDefinitions(password) {
+  // Khởi tạo nhóm 3 tài khoản kỹ thuật viên (technician)
   const technicians = [
     ["Nguyễn Minh Kỹ", "technician1@ithelpdesk.local", "0900000011"],
     ["Trần Hoàng Nam", "technician2@ithelpdesk.local", "0900000012"],
@@ -326,6 +367,7 @@ function buildAccountDefinitions(password) {
     role: "technician",
     status: "active",
   }));
+  // Danh sách 10 nhân viên đầu cuối phân bổ đều qua 5 phòng ban
   const userNames = [
     "Nguyễn Văn An",
     "Trần Thị Bình",
@@ -370,12 +412,18 @@ function buildAccountDefinitions(password) {
   ];
 }
 
+/**
+ * Trộn xen kẽ các cặp `(status, priority)` từ `STATUS_PRIORITY_DISTRIBUTION`
+ * để tạo đúng 30 blueprint ticket phân bố đều theo thời gian và trạng thái.
+ * @returns {Array<{status: string, priority: string}>} Danh sách blueprint ticket.
+ */
 function buildTicketBlueprints() {
   const blueprints = [];
   const maximumGroupLength = Math.max(
     ...STATUS_PRIORITY_DISTRIBUTION.map(({ priorities }) => priorities.length),
   );
 
+  // Duyệt theo chiều ngang qua từng nhóm trạng thái để phân bổ đồng đều các mức độ ưu tiên
   for (let priorityIndex = 0; priorityIndex < maximumGroupLength; priorityIndex += 1) {
     for (const group of STATUS_PRIORITY_DISTRIBUTION) {
       const priority = group.priorities[priorityIndex];
@@ -389,11 +437,24 @@ function buildTicketBlueprints() {
   return blueprints;
 }
 
+/**
+ * Tính thời điểm tạo ticket giả lập lùi về quá khứ theo chỉ số `index` (trải dài ~30 ngày gần nhất)
+ * nhằm phục vụ biểu đồ thống kê xu hướng theo ngày/tuần trên Dashboard.
+ * @param {number} index - Thứ tự ticket (0..29).
+ * @param {Date} now - Thời điểm hiện tại khi chạy seed.
+ * @returns {Date} Thời điểm `createdAt` của ticket.
+ */
 function getTicketCreatedAt(index, now) {
   const hoursAgo = index < 18 ? 720 - index * 30 : 156 - (index - 18) * 12;
   return addMinutes(now, -hoursAgo * 60);
 }
 
+/**
+ * Dựng dòng thời gian xử lý (`statusHistory`, `assignmentHistory` và các mốc thời gian trạng thái)
+ * phù hợp với trạng thái cuối của từng ticket mẫu.
+ * @param {{status: string, createdAt: Date, creator: Object, technician: Object|null, admin: Object}} params - Ngữ cảnh tạo timeline.
+ * @returns {{fields: Object, statusHistory: Array<Object>, assignmentHistory: Array<Object>}} Dữ liệu mốc thời gian và lịch sử thay đổi.
+ */
 function buildTimeline({ status, createdAt, creator, technician, admin }) {
   const statusHistory = [
     {
@@ -418,6 +479,7 @@ function buildTimeline({ status, createdAt, creator, technician, admin }) {
     resolution: null,
   };
 
+  // Giai đoạn 1: Admin phân công Technician nếu trạng thái nằm trong nhóm đã giao việc
   if (ASSIGNED_STATUSES.has(status)) {
     fields.assignedTo = technician._id;
     fields.assignedAt = addMinutes(createdAt, 60);
@@ -437,6 +499,7 @@ function buildTimeline({ status, createdAt, creator, technician, admin }) {
     });
   }
 
+  // Giai đoạn 2: Technician bắt đầu tiếp nhận xử lý
   if (STARTED_STATUSES.has(status)) {
     fields.startedAt = addMinutes(createdAt, 180);
     statusHistory.push({
@@ -448,6 +511,7 @@ function buildTimeline({ status, createdAt, creator, technician, admin }) {
     });
   }
 
+  // Giai đoạn 3a: Chờ người dùng phản hồi thông tin bổ sung
   if (status === "waiting_user") {
     fields.waitingUserAt = addMinutes(createdAt, 360);
     statusHistory.push({
@@ -459,6 +523,7 @@ function buildTimeline({ status, createdAt, creator, technician, admin }) {
     });
   }
 
+  // Giai đoạn 3b: Technician hoàn tất khắc phục sự cố (resolved / closed)
   if (COMPLETED_STATUSES.has(status)) {
     fields.resolvedAt = addMinutes(createdAt, 480);
     fields.resolution =
@@ -472,6 +537,7 @@ function buildTimeline({ status, createdAt, creator, technician, admin }) {
     });
   }
 
+  // Giai đoạn 4: Người tạo ticket xác nhận kết quả và đóng ticket
   if (status === "closed") {
     fields.closedAt = addMinutes(createdAt, 600);
     statusHistory.push({
@@ -483,6 +549,7 @@ function buildTimeline({ status, createdAt, creator, technician, admin }) {
     });
   }
 
+  // Nhánh hủy: Người dùng tự hủy yêu cầu khi ticket đang chờ xử lý
   if (status === "cancelled") {
     fields.cancelledAt = addMinutes(createdAt, 120);
     fields.cancelledBy = creator._id;
@@ -500,6 +567,11 @@ function buildTimeline({ status, createdAt, creator, technician, admin }) {
   return { fields, statusHistory, assignmentHistory };
 }
 
+/**
+ * Sinh danh sách bình luận công khai và ghi chú nội bộ (`isInternal: true`) tương ứng với diễn biến ticket.
+ * @param {{status: string, createdAt: Date, creator: Object, technician: Object|null, timeline: Object}} params - Dữ liệu ticket và timeline.
+ * @returns {Array<Object>} Danh sách định nghĩa comment gắn theo ticket.
+ */
 function buildCommentDefinitions({
   status,
   createdAt,
@@ -519,6 +591,7 @@ function buildCommentDefinitions({
     },
   ];
 
+  // Khi ticket đã được phân công, thêm phản hồi tiếp nhận công khai và ghi chú nội bộ của Technician
   if (ASSIGNED_STATUSES.has(status)) {
     comments.push(
       {
@@ -569,6 +642,12 @@ function buildCommentDefinitions({
   return comments;
 }
 
+/**
+ * Tìm mốc thời gian hoạt động mới nhất trong lịch sử trạng thái, phân công và bình luận của một ticket.
+ * @param {{statusHistory: Array<Object>, assignmentHistory: Array<Object>}} timeline - Lịch sử ticket.
+ * @param {Array<{createdAt: Date}>} comments - Danh sách bình luận.
+ * @returns {Date} Mốc thời gian `lastActivityAt` mới nhất.
+ */
 function getLatestActivityDate(timeline, comments) {
   const timestamps = [
     ...timeline.statusHistory.map(({ changedAt }) => changedAt),
@@ -579,6 +658,11 @@ function getLatestActivityDate(timeline, comments) {
   return new Date(Math.max(...timestamps.map((timestamp) => timestamp.getTime())));
 }
 
+/**
+ * Tổng hợp ngữ cảnh đầy đủ cho 30 ticket mẫu kèm comment, người tạo, kỹ thuật viên phụ trách và timeline.
+ * @param {{now: Date, admin: Object, users: Array<Object>, technicians: Array<Object>, categories: Array<Object>}} params - Tập thực thể tham chiếu đã seed.
+ * @returns {Array<{ticket: Object, comments: Array<Object>, creator: Object, technician: Object|null, timeline: Object}>} Mảng ngữ cảnh ticket để insert vào DB.
+ */
 function createTicketSeedContexts({
   now,
   admin,
@@ -595,6 +679,7 @@ function createTicketSeedContexts({
     const sampleIndex = Math.floor(index / categories.length);
     const issue = ISSUE_SAMPLES[category.slug][sampleIndex];
     const createdAt = getTicketCreatedAt(index, now);
+    // Phân bổ xoay vòng 3 kỹ thuật viên cho các ticket ở trạng thái đã phân công
     const technician = ASSIGNED_STATUSES.has(blueprint.status)
       ? technicians[assignedTicketIndex++ % technicians.length]
       : null;
@@ -639,8 +724,14 @@ function createTicketSeedContexts({
   });
 }
 
+/**
+ * Xóa toàn bộ dữ liệu cũ trong các bảng theo thứ tự tôn trọng ràng buộc khóa ngoại (từ bảng con tới bảng cha).
+ * @param {{silent?: boolean}} [options={}] - Nếu `silent = true`, không in bảng thống kê số bản ghi đã xóa.
+ * @returns {Promise<void>}
+ */
 async function clearExistingData({ silent = false } = {}) {
   const deletionResults = [];
+  // Thứ tự xóa đảm bảo các bảng phụ thuộc khóa ngoại bị xóa trước các bảng gốc (categories, users)
   const collections = [
     ["usb_event_logs", UsbEventLog],
     ["usb_devices", UsbDevice],
@@ -666,6 +757,10 @@ async function clearExistingData({ silent = false } = {}) {
   }
 }
 
+/**
+ * Khởi tạo chỉ mục trên tất cả các Model trước khi chèn dữ liệu seed.
+ * @returns {Promise<void>}
+ */
 async function initializeIndexes() {
   await Promise.all([
     User.init(),
@@ -682,6 +777,13 @@ async function initializeIndexes() {
   ]);
 }
 
+/**
+ * Xác minh database đích an toàn trước khi tiến hành xóa sạch dữ liệu cũ và seed mới.
+ * Chặn chạy trên môi trường `production` hoặc các database hệ thống (`PROTECTED_DATABASE_NAMES`)
+ * nếu không truyền cờ `--force` trên dòng lệnh.
+ * @throws {Error} Nếu database không xác định hoặc vi phạm quy tắc an toàn.
+ * @returns {void}
+ */
 function assertSafeDatabaseTarget() {
   const databaseName = dbConnection.name;
   const force = process.argv.includes("--force");
@@ -705,6 +807,11 @@ function assertSafeDatabaseTarget() {
   console.log(`Database seed mục tiêu: ${databaseName}`);
 }
 
+/**
+ * In bảng tổng kết số lượng bản ghi đã seed cho từng bảng cùng danh sách tài khoản đăng nhập mẫu.
+ * @param {Object} summary - Tập hợp dữ liệu đã được seed thành công.
+ * @returns {void}
+ */
 function printSeedSummary({
   accounts,
   categories,
@@ -739,6 +846,13 @@ function printSeedSummary({
   console.log(`Mật khẩu chung: ${password}`);
 }
 
+/**
+ * Kiểm tra chéo tính toàn vẹn của dữ liệu cốt lõi vừa seed (đủ 14 user, mật khẩu đã băm bcrypt `$2...`,
+ * 6 danh mục, 30 ticket phủ đủ 7 trạng thái & 4 mức ưu tiên, bình luận và 10 đánh giá).
+ * @param {{accounts: Array<Object>, categories: Array<Object>, tickets: Array<Object>, comments: Array<Object>, ratings: Array<Object>}} data - Kết quả seed cần kiểm tra.
+ * @throws {Error} Nếu số lượng hoặc trạng thái dữ liệu không đạt yêu cầu.
+ * @returns {void}
+ */
 function assertSeedResult({ accounts, categories, tickets, comments, ratings }) {
   const roleCounts = accounts.reduce((counts, account) => {
     counts[account.role] = (counts[account.role] ?? 0) + 1;
@@ -774,6 +888,12 @@ function assertSeedResult({ accounts, categories, tickets, comments, ratings }) 
   }
 }
 
+/**
+ * Khởi tạo dữ liệu mẫu cho phân hệ Tài sản IT (`Asset`) và Yêu cầu cấp phát tài sản (`AssetRequest`),
+ * đồng thời đồng bộ bộ đếm `asset-request:<year>` trong `TicketCounter`.
+ * @param {{admin: Object, technicians: Array<Object>, users: Array<Object>, now: Date}} params - Danh sách tài khoản tham chiếu và mốc thời gian hiện tại.
+ * @returns {Promise<{assets: Array<Object>, requests: Array<Object>}>} Danh sách tài sản và yêu cầu cấp phát vừa tạo.
+ */
 async function seedAssetsAndRequests({ admin, technicians, users, now }) {
   const an = users.find((u) => u.fullName.includes("An")) || users[0];
   const binh = users.find((u) => u.fullName.includes("Bình")) || users[1];
@@ -784,6 +904,7 @@ async function seedAssetsAndRequests({ admin, technicians, users, now }) {
 
   const tech1 = technicians[0];
 
+  // Nhóm tài sản mẫu: 4 laptop đang cấp phát (in_use), 3 laptop sẵn trong kho (in_stock) và 1 máy đang bảo trì (maintenance)
   const assets = await Asset.create([
     {
       assetTag: "LP-2026-001",
@@ -920,6 +1041,7 @@ async function seedAssetsAndRequests({ admin, technicians, users, now }) {
     },
   ]);
 
+  // Nhóm yêu cầu cấp phát tài sản bao gồm các trạng thái: pending, in_progress và completed
   const year = now.getFullYear();
   const requests = await AssetRequest.create([
     {
@@ -958,6 +1080,7 @@ async function seedAssetsAndRequests({ admin, technicians, users, now }) {
     },
   ]);
 
+  // Lưu bộ đếm sequence cho mã yêu cầu cấp phát để request tiếp theo đánh số AR-YYYY-0004
   await TicketCounter.create({
     _id: `asset-request:${year}`,
     year,
@@ -967,6 +1090,12 @@ async function seedAssetsAndRequests({ admin, technicians, users, now }) {
   return { assets, requests };
 }
 
+/**
+ * Khởi tạo dữ liệu mẫu cho phân hệ Quản lý Bản quyền Phần mềm (`SoftwareLicense`),
+ * bao phủ các trạng thái còn hạn, sắp hết hạn (+25 ngày), đã hết hạn (-5 ngày) và bản quyền OEM vĩnh viễn.
+ * @param {{admin: Object, users: Array<Object>, now: Date}} params - Tài khoản admin, danh sách người dùng và mốc thời gian hiện tại.
+ * @returns {Promise<Array<Object>>} Danh sách gói bản quyền phần mềm đã seed.
+ */
 async function seedSoftwareLicenses({ admin, users, now }) {
   const an = users[0];
   const binh = users[1];
@@ -975,6 +1104,7 @@ async function seedSoftwareLicenses({ admin, users, now }) {
   const duc = users[4];
   const giang = users[5];
 
+  // Danh sách các gói phần mềm SaaS và OEM kèm thông tin ghế (seats) đã cấp phát cho nhân sự
   const licenses = await SoftwareLicense.create([
     {
       name: "Microsoft 365 Business Standard",
@@ -1128,11 +1258,18 @@ async function seedSoftwareLicenses({ admin, users, now }) {
   return licenses;
 }
 
+/**
+ * Khởi tạo dữ liệu mẫu cho phân hệ Giám sát & Bảo mật USB (`UsbDevice` và `UsbEventLog`),
+ * mô phỏng các thiết bị ở 3 trạng thái (`trusted`, `unverified`, `blocked`) và lịch sử cắm/rút tương ứng.
+ * @param {{admin: Object, technicians: Array<Object>, users: Array<Object>, now: Date}} params - Tài khoản duyệt/sử dụng và mốc thời gian hiện tại.
+ * @returns {Promise<{usbDevices: Array<Object>, usbEvents: Array<Object>}>} Danh sách thiết bị USB và nhật ký sự kiện đã tạo.
+ */
 async function seedUsbSecurityData({ admin, technicians, users, now }) {
   const tech1 = technicians[0];
   const an = users[0];
   const cuong = users[2];
 
+  // Khởi tạo 4 thiết bị USB đại diện cho các loại storage/input_hid và trạng thái trusted/unverified/blocked
   const usbDevices = await UsbDevice.create([
     {
       deviceId: "USBSTOR\\DISK&VEN_KINGSTON&PROD_DATATRAVELER_3.0\\60A44C413DF0B810",
@@ -1219,6 +1356,7 @@ async function seedUsbSecurityData({ admin, technicians, users, now }) {
     },
   ]);
 
+  // Khởi tạo nhật ký sự kiện cắm (connected) và rút (disconnected) gắn với từng thiết bị USB ở trên
   const usbEvents = await UsbEventLog.create([
     {
       usbDevice: usbDevices[2]._id,
@@ -1289,6 +1427,17 @@ async function seedUsbSecurityData({ admin, technicians, users, now }) {
   return { usbDevices, usbEvents };
 }
 
+/**
+ * Hàm điều phối chính thực thi toàn bộ quy trình seed database IT Helpdesk.
+ * Luồng xử lý:
+ * 1. Kiểm tra `DATABASE_URL`, kết nối PostgreSQL và xác nhận database đích an toàn (`assertSafeDatabaseTarget`).
+ * 2. Xóa sạch dữ liệu cũ và khởi tạo index các Model.
+ * 3. Lần lượt tạo: 14 tài khoản, 6 danh mục, 30 ticket mẫu + bình luận + 10 đánh giá + TicketCounter.
+ * 4. Tiếp tục seed tài sản IT & yêu cầu cấp phát, bản quyền phần mềm và dữ liệu bảo mật USB.
+ * 5. Kiểm tra chéo kết quả (`assertSeedResult`) và in bảng tóm tắt (`printSeedSummary`).
+ * 6. Nếu thất bại giữa chừng sau khi đã xóa dữ liệu cũ, tự động dọn dẹp dữ liệu seed dở dang để tránh rác DB.
+ * @returns {Promise<void>}
+ */
 async function seedDatabase() {
   const now = new Date();
   const password = getSeedPassword();
@@ -1302,14 +1451,17 @@ async function seedDatabase() {
   assertSafeDatabaseTarget();
 
   try {
+    // Dọn sạch dữ liệu cũ và đánh dấu cờ để rollback sạch nếu bước tạo dữ liệu sau gặp lỗi
     await clearExistingData();
     databaseWasCleared = true;
     await initializeIndexes();
 
+    // Bước 1: Seed tài khoản và phân tách admin, technicians, users để tái sử dụng cho các bảng sau
     const accounts = await User.create(buildAccountDefinitions(password));
     const admin = accounts.find(({ role }) => role === "admin");
     const technicians = accounts.filter(({ role }) => role === "technician");
     const users = accounts.filter(({ role }) => role === "user");
+    // Bước 2: Seed 6 danh mục sự cố IT
     const categories = await Category.create(
       CATEGORY_DEFINITIONS.map((category) => ({
         ...category,
@@ -1318,6 +1470,7 @@ async function seedDatabase() {
         updatedBy: admin._id,
       })),
     );
+    // Bước 3: Seed 30 ticket theo timeline, bình luận đi kèm và đánh giá cho các ticket đã hoàn tất
     const contexts = createTicketSeedContexts({
       now,
       admin,
@@ -1356,12 +1509,14 @@ async function seedDatabase() {
     );
     const year = getVietnamYear(now);
 
+    // Đồng bộ bộ đếm mã ticket để ticket tạo mới tiếp theo có số thứ tự nối tiếp (HD-YYYY-000031)
     await TicketCounter.create({
       _id: `ticket:${year}`,
       year,
       sequence: tickets.length,
     });
 
+    // Bước 4: Seed các phân hệ mở rộng (Tài sản IT, Bản quyền phần mềm, Giám sát USB)
     const { assets, requests } = await seedAssetsAndRequests({
       accounts,
       admin,
@@ -1383,6 +1538,7 @@ async function seedDatabase() {
       now,
     });
 
+    // Bước 5: Kiểm tra ràng buộc số lượng/chất lượng dữ liệu và in báo cáo kết quả
     assertSeedResult({ accounts, categories, tickets, comments, ratings });
     printSeedSummary({
       accounts,
@@ -1398,6 +1554,7 @@ async function seedDatabase() {
       password,
     });
   } catch (error) {
+    // Rollback thủ công nếu lỗi xảy ra sau khi đã xóa bảng dữ liệu cũ
     if (databaseWasCleared) {
       try {
         await clearExistingData({ silent: true });
@@ -1411,6 +1568,11 @@ async function seedDatabase() {
   }
 }
 
+/**
+ * Điểm vào (entry point) của CLI seed script: chạy `seedDatabase()`, xử lý mã thoát
+ * và đảm bảo luôn ngắt kết nối PostgreSQL trong khối `finally`.
+ * @returns {Promise<void>}
+ */
 async function main() {
   try {
     await seedDatabase();

@@ -1,3 +1,16 @@
+/**
+ * @fileoverview Bảng nhật ký lịch sử các sự kiện cắm / rút USB theo thời gian thực (USB DLP Security).
+ *
+ * Mục đích & vai trò:
+ * - Thuộc phân hệ USB DLP Security, ghi nhận dòng thời gian (audit log) mỗi khi nhân viên
+ *   cắm hoặc rút thiết bị USB trên máy trạm cài Windows Agent.
+ * - Hiển thị thời gian phát sinh, loại sự kiện (Cắm/Rút), thông tin thiết bị phần cứng,
+ *   nhân viên chủ sở hữu máy trạm (`hostOwner` nếu tra khớp tài sản, hoặc fallback `hostname` / `osUsername`)
+ *   và trạng thái chính sách an ninh của thiết bị tại thời điểm xảy ra sự kiện.
+ *
+ * Props:
+ * - `events` {Array}: Danh sách bản ghi sự kiện cắm/rút USB từ backend.
+ */
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -9,6 +22,7 @@ import {
 } from "lucide-react";
 import { formatTicketDateTime } from "../../utils/ticketPermissions.js";
 
+// Cấu hình badge trạng thái an ninh của thiết bị USB tại thời điểm xảy ra sự kiện
 const STATUS_BADGE = {
   trusted: {
     label: "Hợp lệ (Whitelisted)",
@@ -24,6 +38,9 @@ const STATUS_BADGE = {
   },
 };
 
+/**
+ * Component bảng hiển thị nhật ký sự kiện cắm / rút thiết bị USB.
+ */
 function UsbEventsTable({ events = [] }) {
   return (
     <div className="overflow-x-auto">
@@ -46,6 +63,7 @@ function UsbEventsTable({ events = [] }) {
             </tr>
           ) : (
             events.map((evt) => {
+              // Phân biệt sự kiện cắm vào hay rút ra và lấy badge trạng thái an ninh lúc cắm
               const isConnect = evt.eventType === "connected";
               const statusInfo =
                 STATUS_BADGE[evt.deviceStatusAtEvent] || STATUS_BADGE.unverified;
@@ -100,6 +118,7 @@ function UsbEventsTable({ events = [] }) {
                   </td>
 
                   {/* Host Info */}
+                  {/* Luồng hiển thị chủ sở hữu máy trạm: ưu tiên thông tin nhân viên từ hostOwner, fallback sang hostname & OS user */}
                   <td className="py-3 px-4">
                     {evt.hostOwner ? (
                       <div className="text-xs">

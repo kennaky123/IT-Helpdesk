@@ -1,3 +1,14 @@
+/**
+ * Thanh đầu trang cố định (Sticky Top Header) của toàn bộ khung giao diện sau đăng nhập (AppLayout).
+ *
+ * Props: Không nhận props (kết nối trực tiếp với useUiStore, useAuth và React Router useLocation).
+ *
+ * Vai trò trong UI Layout / Navigation:
+ * - Nút mở ngăn kéo điều hướng di động (MobileSidebar) trên màn hình nhỏ (< lg).
+ * - Hiển thị thương hiệu ứng dụng và thanh tab điều hướng ngang theo vai trò trên desktop (>= lg) với hiệu ứng active spring.
+ * - Nút kích hoạt Command Menu (`Ctrl+K` / `⌘K`), nút hành động chính theo vai trò, chuông thông báo SSE (`NotificationButton`)
+ *   và menu người dùng (`UserDropdown`).
+ */
 import { Columns3, Menu, Plus, Search } from "lucide-react";
 import { motion } from "motion/react";
 import { Link, NavLink, useLocation } from "react-router-dom";
@@ -8,14 +19,21 @@ import { useUiStore } from "../../stores/useUiStore.js";
 import NotificationButton from "./NotificationButton.jsx";
 import UserDropdown from "./UserDropdown.jsx";
 
+/**
+ * Render thanh điều hướng trên cùng thích ứng theo kích thước màn hình và vai trò đăng nhập.
+ */
 function Header() {
+  // Lấy trạng thái mở menu di động và các action mở drawer / Command Menu từ Zustand store.
   const mobileMenuOpen = useUiStore((state) => state.mobileMenuOpen);
   const openMobileMenu = useUiStore((state) => state.openMobileMenu);
   const openCommandMenu = useUiStore((state) => state.openCommandMenu);
   const { user } = useAuth();
   const location = useLocation();
+  // Đường dẫn trang chủ và danh sách tab điều hướng tương ứng với vai trò người dùng.
   const homePath = getDefaultPathForRole(user?.role);
   const navigationItems = getNavigationForRole(user?.role);
+  // Kiểm tra xem người dùng có đang xem màn hình chi tiết ticket hay không (loại trừ các route tĩnh như /new, /all, /assigned, /in-progress)
+  // để hiển thị thêm pill ngữ cảnh "Chi Tiết (3 Cột)" trên thanh tab desktop.
   const isTicketDetail =
     /^\/(?:admin|user|technician)\/tickets\/[^/]+$/.test(location.pathname) &&
     location.pathname !== "/user/tickets/new" &&
@@ -23,6 +41,7 @@ function Header() {
     location.pathname !== "/technician/tickets/assigned" &&
     location.pathname !== "/technician/tickets/in-progress";
 
+  // Xác định đích điều hướng và nhãn nút hành động chính (CTA) phù hợp cho từng vai trò.
   const primaryActionPath =
     user?.role === "user"
       ? "/user/tickets/new"
@@ -35,6 +54,7 @@ function Header() {
   return (
     <header className="sticky top-0 z-30 h-14 bg-white border-b border-brand-bone px-4 flex items-center justify-between gap-3 shrink-0">
       <div className="flex items-center gap-4 min-w-0">
+        {/* Nút mở drawer điều hướng di động (chỉ hiển thị dưới breakpoint lg) */}
         <button
           type="button"
           onClick={openMobileMenu}

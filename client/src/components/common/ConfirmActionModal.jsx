@@ -1,3 +1,21 @@
+/**
+ * Modal xác nhận dùng chung cho các thao tác quan trọng hoặc mang tính phá hủy dữ liệu
+ * (ví dụ: hủy/đóng yêu cầu, thu hồi cấp phát, thao tác cần nhập lý do xác nhận).
+ *
+ * Props:
+ * - title: Tiêu đề của hộp thoại xác nhận.
+ * - description: Nội dung mô tả chi tiết hệ quả của hành động.
+ * - confirmLabel: Nhãn hiển thị trên nút xác nhận chính.
+ * - noteLabel: Nhãn cho ô nhập ghi chú/lý do (nếu không truyền sẽ ẩn ô textarea).
+ * - notePlaceholder: Văn bản gợi ý bên trong ô ghi chú.
+ * - submitting: Cờ báo đang gửi yêu cầu lên server; khóa thao tác đóng modal và disable nút.
+ * - error: Đối tượng lỗi trả về ({ message, details }) để hiển thị cảnh báo ngay trong modal.
+ * - onCancel: Callback đóng modal khi người dùng hủy thao tác.
+ * - onConfirm: Callback thực thi xác nhận, nhận tham số là chuỗi ghi chú đã được trim().
+ *
+ * Vai trò trong UI Layout:
+ * - Component Common tái sử dụng trên nhiều trang quản trị, kỹ thuật và người dùng.
+ */
 import { useState } from "react";
 import { AlertTriangle, LoaderCircle } from "lucide-react";
 import { Button } from "../ui/button.jsx";
@@ -10,6 +28,9 @@ import {
   DialogTitle,
 } from "../ui/dialog.jsx";
 
+/**
+ * Component hộp thoại xác nhận hành động có hỗ trợ nhập ghi chú tùy chọn và hiển thị lỗi API.
+ */
 function ConfirmActionModal({
   title,
   description,
@@ -21,8 +42,10 @@ function ConfirmActionModal({
   onCancel,
   onConfirm,
 }) {
+  // Lưu nội dung ghi chú/lý do người dùng nhập trước khi xác nhận (tối đa 500 ký tự).
   const [note, setNote] = useState("");
 
+  // Chặn đóng modal khi Dialog phát sinh sự kiện đóng (backdrop/ESC) trong lúc API đang xử lý.
   function handleOpenChange(open) {
     if (!open && !submitting) {
       onCancel();
@@ -31,6 +54,7 @@ function ConfirmActionModal({
 
   return (
     <Dialog open onOpenChange={handleOpenChange}>
+      {/* Cho phép tắt nút X và chặn ESC/click ngoài khi đang gửi request */}
       <DialogContent
         hideClose={submitting}
         onEscapeKeyDown={(event) => {

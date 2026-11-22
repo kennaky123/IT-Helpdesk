@@ -1,3 +1,12 @@
+/**
+ * Trang Quản lý Hàng đợi Ticket (Admin Tickets Queue).
+ *
+ * Vai trò trong hệ thống IT Helpdesk:
+ * - Là màn hình điều phối ticket tập trung cho Admin, kết hợp thanh chỉ số vận hành 5 ô
+ *   (tổng ticket, ticket khẩn cấp P1, ticket chưa phân công, MTTR, điểm hài lòng CSAT).
+ * - Tích hợp bộ lọc đa tiêu chí đồng bộ URL (trạng thái, độ ưu tiên, danh mục, kỹ thuật viên, tìm kiếm)
+ *   và phân trang danh sách ticket phục vụ kiểm tra, phân công và theo dõi SLA.
+ */
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import TicketFilters from "../../components/ticket/TicketFilters.jsx";
@@ -13,6 +22,9 @@ import useTicketList, {
 import useTicketListQuery from "../../hooks/useTicketListQuery.js";
 import { getTicketListErrorMessage } from "../../services/ticketService.js";
 
+/**
+ * Helper định dạng chỉ số thời gian xử lý trung bình (MTTR) hiển thị trên thẻ KPI.
+ */
 function formatResolutionMetric(resolutionTime) {
   if (!resolutionTime || resolutionTime.minutes == null) {
     return "Chưa có";
@@ -23,7 +35,12 @@ function formatResolutionMetric(resolutionTime) {
   return `${resolutionTime.hours} giờ`;
 }
 
+/**
+ * Component chính của trang danh sách ticket dành cho quản trị viên.
+ * Kết nối các hook truy vấn URL, danh sách ticket, tùy chọn bộ lọc và số liệu dashboard.
+ */
 function AdminTicketsPage() {
+  // Quản lý tham số bộ lọc và phân trang đồng bộ trực tiếp với URL search params
   const {
     query,
     setFilter,
@@ -32,21 +49,29 @@ function AdminTicketsPage() {
     activeFilterCount,
     hasActiveFilters,
   } = useTicketListQuery();
+  // Luồng lấy dữ liệu 1: danh sách ticket phân trang từ API theo query hiện tại
   const ticketList = useTicketList(query);
+  // Luồng lấy dữ liệu 2: danh sách tùy chọn cho dropdown bộ lọc (danh mục, kỹ thuật viên...)
   const filterOptions = useTicketFilterOptions();
+  // Luồng lấy dữ liệu 3: chỉ số tổng quan (tổng ticket, MTTR, CSAT) từ endpoint dashboard
   const { data: dashboard } = useAdminDashboard();
+  // Ổn định tham chiếu mảng tickets để tránh tính toán lại không cần thiết trong useMemo bên dưới
   const tickets = useMemo(
     () => ticketList.data?.tickets ?? [],
     [ticketList.data?.tickets],
   );
+  // Tổng số bản ghi khớp điều kiện lọc (ưu tiên lấy từ metadata phân trang của backend)
   const totalItems = ticketList.data?.pagination?.totalItems ?? tickets.length;
 
+  // Tính toán các chỉ số nhanh trên thanh Operational Stats Bar (kết hợp dữ liệu danh sách & dashboard)
   const queueMetrics = useMemo(() => {
+    // Đếm các ticket mức độ khẩn cấp (urgent / P1) chưa hoàn thành trong tập ticket hiện tại
     const p1Count = tickets.filter(
       (t) =>
         t.priority === "urgent" &&
         !["resolved", "closed", "cancelled"].includes(t.status),
     ).length;
+    // Đếm các ticket chưa được gán kỹ thuật viên và chưa đóng
     const unassignedCount = tickets.filter(
       (t) =>
         !t.assignedTo &&
@@ -73,6 +98,7 @@ function AdminTicketsPage() {
       className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6"
     >
       {/* Operational Stats Bar (5-Metric Grid from DeskPro IT) */}
+      {/* Thanh 5 thẻ thống kê nhanh kèm nút lọc tức thì theo P1 và Chưa phân công */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <div className="flex flex-col justify-between rounded-xl border border-brand-bone bg-white p-4 shadow-xs transition-colors hover:border-brand-ash">
           <div className="flex items-center justify-between">
@@ -130,6 +156,7 @@ function AdminTicketsPage() {
             <span className="font-display text-2xl font-extrabold text-red-600">
               {queueMetrics.p1Count}
             </span>
+            {/* Bật/tắt nhanh bộ lọc độ ưu tiên khẩn cấp (urgent) */}
             <button
               type="button"
               onClick={() =>
@@ -170,6 +197,7 @@ function AdminTicketsPage() {
             <span className="font-display text-2xl font-extrabold text-brand-ink">
               {queueMetrics.unassignedCount}
             </span>
+            {/* Bật/tắt nhanh bộ lọc trạng thái đang chờ phân công (pending) */}
             <button
               type="button"
               onClick={() =>
@@ -253,10 +281,12 @@ function AdminTicketsPage() {
         </div>
       </div>
 
+      {/* Tiêu đề ẩn hỗ trợ trình đọc màn hình (accessibility) */}
       <h1 id="admin-ticket-list-title" className="sr-only">
         Hàng Đợi Ticket IT Help Desk
       </h1>
 
+      {/* Thanh bộ lọc ticket đa tiêu chí */}
       <TicketFilters
         query={query}
         filterOptions={filterOptions.data}
@@ -269,6 +299,7 @@ function AdminTicketsPage() {
         onRetryOptions={filterOptions.refetch}
       />
 
+      {/* Vùng hiển thị danh sách ticket theo các trạng thái: loading, lỗi, có dữ liệu hoặc trống */}
       <div className="mt-4" aria-busy={ticketList.isLoading}>
         {ticketList.isLoading ? <TicketListSkeleton /> : null}
 

@@ -1,3 +1,12 @@
+/**
+ * Biểu đồ tròn dạng Donut (Recharts PieChart) thể hiện cơ cấu phân bổ ticket theo từng trạng thái xử lý.
+ *
+ * Props:
+ * - data: Mảng các mục trạng thái ticket (mỗi phần tử gồm { key, name, value }).
+ *
+ * Vai trò trong Dashboard (Recharts):
+ * - Vẽ biểu đồ Donut với innerRadius/outerRadius cố định bằng tỷ lệ phần trăm và danh sách chú giải (legend) 2 cột bên dưới.
+ */
 import {
   Cell,
   Pie,
@@ -8,6 +17,7 @@ import {
 import { formatDashboardNumber } from "../../utils/dashboardFormatters.js";
 import ChartEmptyState from "./ChartEmptyState.jsx";
 
+// Bảng ánh xạ mã màu HEX cố định cho từng trạng thái ticket trong vòng đời xử lý.
 const STATUS_COLORS = {
   pending: "#0091ff",
   assigned: "#6647f0",
@@ -18,11 +28,15 @@ const STATUS_COLORS = {
   cancelled: "#ef4444",
 };
 
+/**
+ * Tooltip tùy biến của Recharts hiển thị tên trạng thái và số ticket khi rê chuột vào từng lát cắt của biểu đồ Donut.
+ */
 function StatusTooltip({ active, payload }) {
   if (!active || !payload?.[0]?.payload) {
     return null;
   }
 
+  // Lấy đối tượng trạng thái tương ứng với lát cắt đang được chọn từ payload của Recharts.
   const item = payload[0].payload;
 
   return (
@@ -35,8 +49,13 @@ function StatusTooltip({ active, payload }) {
   );
 }
 
+/**
+ * Render biểu đồ Donut phân bổ trạng thái và bảng chú giải đầy đủ tất cả trạng thái phía dưới.
+ */
 function TicketsByStatusChart({ data }) {
+  // Lọc các trạng thái có value > 0 để PieChart chỉ vẽ các lát cắt tồn tại dữ liệu (tránh lát cắt 0).
   const chartData = data.filter((item) => item.value > 0);
+  // Tính tổng số ticket trên toàn bộ trạng thái để kiểm tra trạng thái trống và phục vụ aria-label.
   const totalTickets = data.reduce((total, item) => total + item.value, 0);
 
   if (totalTickets === 0) {
@@ -79,6 +98,7 @@ function TicketsByStatusChart({ data }) {
         </ResponsiveContainer>
       </div>
 
+      {/* Lưới chú giải hiển thị đầy đủ các trạng thái (kể cả trạng thái chưa có ticket nào) */}
       <ul className="mt-3 grid gap-x-5 gap-y-2 sm:grid-cols-2">
         {data.map((item) => (
           <li

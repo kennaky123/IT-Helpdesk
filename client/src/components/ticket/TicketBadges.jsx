@@ -1,5 +1,17 @@
+/**
+ * TicketBadges.jsx
+ *
+ * Chức năng: Cung cấp các component badge trực quan hiển thị trạng thái xử lý
+ * (`TicketStatusBadge`) và mức độ ưu tiên (`TicketPriorityBadge`) của ticket.
+ * Props:
+ * - TicketStatusBadge: `status` (mã trạng thái từ backend), `label` (nhãn tùy chỉnh ghi đè nếu có).
+ * - TicketPriorityBadge: `priority` (mã mức độ ưu tiên: urgent/high/medium/low), `label` (nhãn tùy chỉnh nếu có).
+ * Vai trò: Đảm bảo tính nhất quán màu sắc, nhãn tiếng Việt và cảnh báo trực quan SLA
+ * (như chấm nhấp nháy P1) xuyên suốt danh sách và trang chi tiết ticket.
+ */
 import { Badge } from "../ui/badge.jsx";
 
+// Bảng ánh xạ mã trạng thái ticket sang nhãn tiếng Việt, biến thể màu badge và lớp CSS bổ sung
 const STATUS_STYLES = {
   pending: {
     label: "Mới Tiếp Nhận",
@@ -38,6 +50,7 @@ const STATUS_STYLES = {
   },
 };
 
+// Bảng ánh xạ mức độ ưu tiên ticket sang nhãn P1–P4, màu sắc và chấm tròn chỉ báo mức khẩn cấp (`pulse-sla` cho P1)
 const PRIORITY_STYLES = {
   urgent: {
     label: "P1 - Khẩn Cấp",
@@ -65,7 +78,9 @@ const PRIORITY_STYLES = {
   },
 };
 
+// Component hiển thị badge trạng thái ticket; tự fallback sang nhãn mặc định nếu gặp mã trạng thái chưa định nghĩa
 function TicketStatusBadge({ status, label }) {
+  // Tra cứu cấu hình giao diện theo `status`, dùng cấu hình phụ nếu không khớp khóa nào
   const presentation = STATUS_STYLES[status] ?? {
     label: label || status || "Không xác định",
     variant: "secondary",
@@ -79,7 +94,9 @@ function TicketStatusBadge({ status, label }) {
   );
 }
 
+// Component hiển thị badge mức độ ưu tiên ticket kèm chấm chỉ báo (dot) cho P1/P2
 function TicketPriorityBadge({ priority, label }) {
+  // Tra cứu cấu hình giao diện theo `priority`, fallback về kiểu xám trung tính nếu chưa xác định
   const presentation = PRIORITY_STYLES[priority] ?? {
     label: label || priority || "Không xác định",
     variant: "secondary",
@@ -89,6 +106,7 @@ function TicketPriorityBadge({ priority, label }) {
 
   return (
     <Badge variant={presentation.variant} className={presentation.classes}>
+      {/* Hiển thị chấm tròn nhấn mạnh mức độ khẩn cấp/cao nếu cấu hình có định nghĩa `dot` */}
       {presentation.dot ? (
         <span className={presentation.dot} aria-hidden="true" />
       ) : null}

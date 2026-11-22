@@ -1,8 +1,19 @@
+/**
+ * @file ForgotPasswordPage.jsx
+ * @description Trang hướng dẫn khôi phục mật khẩu tài khoản Active Directory / nội bộ.
+ * @role Auth (người dùng chưa đăng nhập hoặc quên thông tin đăng nhập).
+ * @flow Cập nhật tiêu đề tab trình duyệt, hiển thị thông tin liên hệ Quản trị viên IT qua Hotline nội bộ (Ext: 8888) để cấp lại mật khẩu và nút quay về `/login`.
+ */
 import { ArrowLeft, KeyRound } from "lucide-react";
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 
+/**
+ * Component trang Quên mật khẩu.
+ * Theo chính sách bảo mật nội bộ, việc đặt lại mật khẩu được thực hiện qua xác minh trực tiếp với IT Admin thay vì form tự reset online.
+ */
 function ForgotPasswordPage() {
+  // Cập nhật tiêu đề tab trình duyệt khi truy cập trang Quên mật khẩu
   useEffect(() => {
     document.title = "Quên mật khẩu | DeskPro IT";
   }, []);

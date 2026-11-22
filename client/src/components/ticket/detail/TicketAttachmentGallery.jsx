@@ -1,7 +1,24 @@
+/**
+ * @file TicketAttachmentGallery.jsx
+ * @description Component hiển thị danh sách ảnh chụp màn hình và tệp đính kèm của ticket.
+ *
+ * Props:
+ * - `ticketId` {string}: ID của ticket dùng để tải blob tệp đính kèm từ endpoint cần xác thực.
+ * - `attachments` {Array<Object>}: Danh sách metadata tệp đính kèm (`_id`, `originalName`, `sizeBytes`).
+ *
+ * Vai trò: Hiển thị trong cột nội dung chính của màn hình chi tiết ticket; tải dữ liệu ảnh bằng
+ * token xác thực qua `getTicketAttachmentBlob`, tạo Object URL tạm thời để xem trước dạng lưới
+ * và cho phép bấm vào từng ảnh để mở xem ảnh phóng to kích thước đầy đủ ở tab mới.
+ */
 import { ExternalLink, ImageOff, LoaderCircle, Paperclip } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { getTicketAttachmentBlob } from "../../../services/ticketService.js";
 
+/**
+ * Định dạng kích thước tệp từ byte sang chuỗi dễ đọc (KB hoặc MB).
+ * @param {number} sizeBytes
+ * @returns {string}
+ */
 function formatFileSize(sizeBytes) {
   if (!Number.isFinite(sizeBytes)) {
     return "";
@@ -14,14 +31,20 @@ function formatFileSize(sizeBytes) {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Thư viện hiển thị các ảnh đính kèm của ticket và hỗ trợ bấm mở xem phóng to ở tab mới.
+ */
 function TicketAttachmentGallery({ ticketId, attachments }) {
+  // Tạo khóa duy nhất từ ticketId và danh sách ID tệp để đồng bộ trạng thái loading khi đổi ticket
   const attachmentKey = useMemo(
     () =>
       `${ticketId}:${attachments.map((attachment) => attachment._id).join(",")}`,
     [attachments, ticketId],
   );
+  // State lưu khóa bộ tệp đã tải xong cùng danh sách URL đối tượng tương ứng
   const [state, setState] = useState({ key: null, items: [] });
 
+  // Effect tải song song toàn bộ blob ảnh có xác thực và thu hồi Object URL khi unmount/thay đổi
   useEffect(() => {
     const abortController = new AbortController();
     const objectUrls = [];
@@ -32,6 +55,7 @@ function TicketAttachmentGallery({ ticketId, attachments }) {
           const blob = await getTicketAttachmentBlob(ticketId, attachment._id, {
             signal: abortController.signal,
           });
+          // Tạo URL bộ nhớ cục bộ từ Blob để thẻ <img> và liên kết phóng to sử dụng trực tiếp
           const url = URL.createObjectURL(blob);
           objectUrls.push(url);
           return { attachment, url, error: false };
@@ -49,16 +73,19 @@ function TicketAttachmentGallery({ ticketId, attachments }) {
       }
     });
 
+    // Dọn dẹp: hủy các request đang chờ và giải phóng toàn bộ Object URL tránh rò rỉ bộ nhớ
     return () => {
       abortController.abort();
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, [attachmentKey, attachments, ticketId]);
 
+  // Ẩn hoàn toàn khu vực đính kèm nếu ticket không có tệp nào
   if (!attachments || attachments.length === 0) {
     return null;
   }
 
+  // Xác định đang tải khi state hiện tại chưa khớp với bộ tệp mới nhất
   const isLoading = state.key !== attachmentKey;
 
   return (
@@ -74,6 +101,7 @@ function TicketAttachmentGallery({ ticketId, attachments }) {
       </div>
 
       {isLoading ? (
+        /* Trạng thái đang tải dữ liệu blob các tệp đính kèm */
         <div
           className="mt-4 flex min-h-24 items-center justify-center rounded-xl bg-brand-mist text-xs text-brand-slate"
           role="status"
@@ -85,6 +113,7 @@ function TicketAttachmentGallery({ ticketId, attachments }) {
           Đang tải tệp đính kèm...
         </div>
       ) : (
+        /* Lưới ảnh đính kèm: mỗi ảnh là liên kết mở tab mới để xem ảnh phóng to */
         <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {state.items.map(({ attachment, url, error }) => (
             <li
@@ -92,6 +121,7 @@ function TicketAttachmentGallery({ ticketId, attachments }) {
               className="min-w-0 overflow-hidden rounded-xl border border-brand-bone bg-brand-mist/50"
             >
               {url ? (
+                /* Liên kết mở Blob URL sang tab mới giúp xem ảnh rõ nét ở kích thước gốc */
                 <a
                   href={url}
                   target="_blank"
@@ -111,6 +141,7 @@ function TicketAttachmentGallery({ ticketId, attachments }) {
                   </div>
                 </a>
               ) : (
+                /* Khung dự phòng khi không tải được ảnh hoặc yêu cầu đã bị hủy */
                 <div className="flex aspect-video flex-col items-center justify-center bg-brand-mist px-3 text-center text-brand-ash">
                   <ImageOff className="size-5" aria-hidden="true" />
                   <span className="mt-1 text-[11px]">

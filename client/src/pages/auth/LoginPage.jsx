@@ -1,3 +1,13 @@
+/**
+ * @file LoginPage.jsx
+ * @description Trang đăng nhập trung tâm của hệ thống DeskPro IT (AIOps v3.0), hỗ trợ xác thực tài khoản doanh nghiệp và điều hướng theo phân quyền vai trò (RBAC).
+ * @role Auth (người dùng chưa đăng nhập; tự động chuyển hướng nếu đã có phiên hợp lệ).
+ * @flow
+ * 1. Kiểm tra trạng thái xác thực từ `useAuth()`: hiển thị màn hình chờ nếu `isLoading`, hoặc điều hướng ngay sang trang mặc định theo `user.role` nếu `isAuthenticated`.
+ * 2. Validate form đăng nhập (`email`, `password`, `rememberMe`) bằng Zod + `react-hook-form`.
+ * 3. Khi submit hợp lệ (`onValidSubmit`): gọi `login()`, tính toán `redirectPath` phù hợp với vai trò qua `getRedirectPath()` và điều hướng `navigate(redirectPath, { replace: true })`.
+ * 4. Khi lỗi API: hiển thị thông báo lỗi và focus vào khung alert để hỗ trợ truy cập.
+ */
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   CheckCircle2,
@@ -23,6 +33,7 @@ import { getDefaultPathForRole } from "../../constants/roles.js";
 import useAuth from "../../hooks/useAuth.js";
 import { getLoginError } from "../../services/authService.js";
 
+// Schema Zod kiểm tra hợp lệ dữ liệu đầu vào của form đăng nhập phía client
 const loginSchema = z.object({
   email: z
     .string()
@@ -34,12 +45,17 @@ const loginSchema = z.object({
   rememberMe: z.boolean().default(false),
 });
 
+// Tiền tố đường dẫn được phép truy cập tương ứng cho từng vai trò sau khi đăng nhập
 const ROLE_PATH_PREFIXES = {
   user: "/user/",
   technician: "/technician/",
   admin: "/admin/",
 };
 
+/**
+ * Xác định đường dẫn chuyển hướng sau khi đăng nhập thành công dựa trên vai trò và vị trí trước đó.
+ * Chỉ quay lại trang `previousLocation` nếu đường dẫn đó là `/profile` hoặc khớp prefix vai trò; ngược lại về trang mặc định của vai trò.
+ */
 function getRedirectPath(role, previousLocation) {
   const defaultPath = getDefaultPathForRole(role);
   const pathname = previousLocation?.pathname;
@@ -58,14 +74,24 @@ function getRedirectPath(role, previousLocation) {
   }`;
 }
 
+/**
+ * Component trang Đăng nhập.
+ * Quản lý trạng thái form, ẩn/hiện mật khẩu, xử lý lỗi API và luồng điều hướng tự động theo role.
+ */
 function LoginPage() {
+  // Lưu thông báo lỗi trả về từ API đăng nhập (null khi không có lỗi)
   const [apiError, setApiError] = useState(null);
+  // Bật/tắt chế độ hiển thị ký tự mật khẩu ở ô input password
   const [showPassword, setShowPassword] = useState(false);
+  // Lấy trạng thái phiên đăng nhập và hàm login() từ AuthContext
   const { isAuthenticated, isLoading, login, user } = useAuth();
+  // Lấy location hiện tại (để đọc location.state?.from) và hàm điều hướng navigate
   const location = useLocation();
   const navigate = useNavigate();
+  // Ref trỏ tới hộp thông báo lỗi API để tự động focus khi đăng nhập thất bại
   const apiErrorRef = useRef(null);
 
+  // Khởi tạo react-hook-form kết hợp zodResolver để validate form đăng nhập
   const {
     register,
     handleSubmit,
@@ -79,18 +105,25 @@ function LoginPage() {
     },
   });
 
+  // Cập nhật tiêu đề tab trình duyệt khi mở trang Đăng nhập
   useEffect(() => {
     document.title = "Đăng nhập | DeskPro IT — AIOps v3.0";
   }, []);
 
+  // Trong lúc đang khôi phục phiên đăng nhập ban đầu, hiển thị màn hình chờ xác thực
   if (isLoading) {
     return <AuthLoadingScreen />;
   }
 
+  // Nếu người dùng đã đăng nhập sẵn, chuyển hướng thẳng về trang tổng quan theo role
   if (isAuthenticated) {
     return <Navigate to={getDefaultPathForRole(user.role)} replace />;
   }
 
+  /**
+   * Event handler xử lý khi form đăng nhập đã vượt qua validation của Zod.
+   * Chuẩn hóa email, gọi API login, xác định trang đích theo role và xử lý lỗi API nếu thất bại.
+   */
   async function onValidSubmit(values) {
     setApiError(null);
 
@@ -100,6 +133,7 @@ function LoginPage() {
         password: values.password,
         rememberMe: values.rememberMe,
       });
+      // Kiểm tra lại quyền truy cập của đường dẫn trước đó để tránh redirect sai role
       const redirectPath = getRedirectPath(
         authenticatedUser.role,
         location.state?.from,
@@ -112,12 +146,14 @@ function LoginPage() {
     }
   }
 
+  // Class CSS động cho ô nhập email (đổi viền đỏ khi có lỗi validate)
   const emailInputClasses = [
     "h-11 w-full rounded-xl border bg-brand-mist pr-4 pl-10 text-sm text-brand-ink outline-none transition placeholder:text-brand-ash focus:bg-white disabled:cursor-not-allowed disabled:opacity-60",
     errors.email
       ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-100"
       : "border-brand-bone focus:border-brand-violet focus:ring-2 focus:ring-brand-violet/20",
   ].join(" ");
+  // Class CSS động cho ô nhập mật khẩu (đổi viền đỏ khi có lỗi validate)
   const passwordInputClasses = [
     "h-11 w-full rounded-xl border bg-brand-mist pr-11 pl-10 text-sm text-brand-ink outline-none transition placeholder:text-brand-ash focus:bg-white disabled:cursor-not-allowed disabled:opacity-60",
     errors.password
@@ -128,6 +164,7 @@ function LoginPage() {
   return (
     <main className="grid min-h-svh bg-brand-mist lg:grid-cols-[minmax(0,1.08fr)_minmax(28rem,0.92fr)]">
       {/* Left Brand Showcase (DeskPro IT AIOps v3.0) */}
+      {/* Cột trái: Khu vực giới thiệu thương hiệu và tính năng nổi bật của DeskPro IT (ẩn trên màn hình nhỏ) */}
       <section className="relative hidden overflow-hidden bg-brand-onyx p-12 text-white lg:flex lg:flex-col lg:justify-between xl:p-16">
         <div
           className="pointer-events-none absolute inset-0 opacity-20"
@@ -209,6 +246,7 @@ function LoginPage() {
       </section>
 
       {/* Right Login Card */}
+      {/* Cột phải: Thẻ chứa form đăng nhập tài khoản doanh nghiệp */}
       <section className="flex min-w-0 items-center justify-center px-4 py-8 sm:px-8 lg:px-10 xl:px-16">
         <div className="w-full max-w-md">
           <div className="mb-6 flex items-center gap-2.5 lg:hidden">
@@ -249,6 +287,7 @@ function LoginPage() {
               </p>
             </div>
 
+            {/* Form đăng nhập sử dụng react-hook-form và hiển thị vùng lỗi API (role="alert") nếu xác thực thất bại */}
             <form
               className="mt-6 space-y-4"
               onSubmit={(event) => handleSubmit(onValidSubmit)(event)}
@@ -363,6 +402,7 @@ function LoginPage() {
                 ) : null}
               </div>
 
+              {/* Tùy chọn duy trì phiên đăng nhập (rememberMe) và liên kết chuyển tới trang Quên mật khẩu */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                 <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-brand-slate">
                   <input

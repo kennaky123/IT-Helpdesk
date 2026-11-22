@@ -1,3 +1,12 @@
+/**
+ * Trang Giám Sát & Quản Lý Thiết Bị Ngoại Vi USB (Endpoint Security & DLP).
+ *
+ * Vai trò trong hệ thống IT Helpdesk:
+ * - Nhận dữ liệu giám sát thiết bị ngoại vi thời gian thực từ các máy trạm cài ITHelpdeskUSBAgent.exe.
+ * - Giúp Admin và Kỹ thuật viên kiểm soát danh sách thiết bị USB đã cắm vào hệ thống mạng,
+ *   phát hiện thiết bị chưa xác minh, phê duyệt (Whitelist) hoặc chặn (Blacklist) nhanh chóng,
+ *   xem nhật ký cắm/rút chi tiết và chạy giả lập sự kiện USB để kiểm thử luồng cảnh báo.
+ */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -27,12 +36,14 @@ import {
   updateUsbDevicePolicy,
 } from "../../services/usbService.js";
 
+// Danh sách các tùy chọn lọc theo trạng thái chính sách bảo mật USB
 const STATUS_OPTIONS = [
   { value: "unverified", label: "Chưa xác minh (Cảnh báo)" },
   { value: "trusted", label: "Đã phê duyệt (Whitelist)" },
   { value: "blocked", label: "Bị chặn (Blacklist)" },
 ];
 
+// Danh sách các tùy chọn lọc theo phân loại phần cứng thiết bị USB
 const TYPE_OPTIONS = [
   { value: "storage", label: "USB Lưu Trữ (Flash / HDD)" },
   { value: "input_hid", label: "Chuột / Phím HID" },
@@ -41,25 +52,36 @@ const TYPE_OPTIONS = [
   { value: "other_usb", label: "Ngoại Vi USB Khác" },
 ];
 
+/**
+ * Component chính của trang Giám sát & Quản lý Thiết bị Ngoại vi USB.
+ * Quản lý truy vấn dữ liệu dashboard USB, chuyển tab thiết bị/nhật ký, lọc và cập nhật chính sách Whitelist/Blacklist.
+ */
 function UsbSecurityPage() {
+  // Client React Query để làm mới cache nhánh ["usb"] sau các thao tác chính sách/xóa/giả lập
   const queryClient = useQueryClient();
+  // Lấy vai trò người dùng hiện tại để truyền xuống bảng thiết bị phân quyền thao tác
   const { user } = useAuth();
   const role = user?.role || "admin";
 
+  // Tab đang xem: danh sách thiết bị USB hoặc nhật ký sự kiện cắm/rút
   const [activeTab, setActiveTab] = useState("devices"); // "devices" | "events"
+  // Cờ đang gửi sự kiện giả lập cắm USB từ trình duyệt
   const [isSimulating, setIsSimulating] = useState(false);
 
   // Filters
+  // Các state bộ lọc gửi lên API dashboard giám sát USB
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [deviceTypeFilter, setDeviceTypeFilter] = useState("");
   const [connectionStateFilter, setConnectionStateFilter] = useState("");
 
   // Modals
+  // State thiết bị đang chỉnh sửa chính sách chi tiết và thiết bị chờ xác nhận xóa
   const [policyTarget, setPolicyTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Luồng lấy dữ liệu: truy vấn đồng bộ danh sách thiết bị, nhật ký sự kiện, thống kê và thông tin LAN Agent
   const usbQuery = useQuery({
     queryKey: [
       "usb",
@@ -83,6 +105,7 @@ function UsbSecurityPage() {
       ),
   });
 
+  // Hiển thị toast thông báo nếu truy vấn dữ liệu giám sát USB gặp lỗi
   useEffect(() => {
     if (usbQuery.error) {
       toast.error(
@@ -92,16 +115,21 @@ function UsbSecurityPage() {
     }
   }, [usbQuery.error]);
 
+  // Trích xuất dữ liệu thiết bị, nhật ký sự kiện, thống kê tổng quan và cấu hình mạng từ query
   const devices = usbQuery.data?.devices || [];
   const events = usbQuery.data?.events || [];
   const summary = usbQuery.data?.summary || {};
   const networkInfo = usbQuery.data?.networkInfo || null;
   const isLoading = usbQuery.isLoading || usbQuery.isFetching;
 
+  // Làm mới toàn bộ cache React Query thuộc nhánh ["usb"]
   const refreshData = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["usb"] });
   }, [queryClient]);
 
+  /**
+   * Phê duyệt nhanh một thiết bị USB vào danh sách tin cậy (Whitelist) và làm mới cache.
+   */
   async function handleQuickApprove(device) {
     try {
       await updateUsbDevicePolicy(device._id, {
@@ -117,6 +145,9 @@ function UsbSecurityPage() {
     }
   }
 
+  /**
+   * Đưa nhanh một thiết bị USB vào danh sách chặn (Blacklist) và làm mới cache.
+   */
   async function handleQuickBlock(device) {
     try {
       await updateUsbDevicePolicy(device._id, {
@@ -132,6 +163,9 @@ function UsbSecurityPage() {
     }
   }
 
+  /**
+   * Giả lập gửi một sự kiện cắm thiết bị USB ngẫu nhiên như từ Agent thực tế để kiểm thử luồng cảnh báo realtime.
+   */
   async function handleSimulateUsbEvent() {
     setIsSimulating(true);
     try {
@@ -185,6 +219,9 @@ function UsbSecurityPage() {
     }
   }
 
+  /**
+   * Xử lý xác nhận xóa thiết bị USB và toàn bộ nhật ký liên quan khỏi hệ thống, sau đó invalidate cache.
+   */
   async function handleDeleteConfirm() {
     if (!deleteTarget) return;
     setIsDeleting(true);
@@ -200,10 +237,14 @@ function UsbSecurityPage() {
     }
   }
 
+  // Kiểm tra có bộ lọc nào đang kích hoạt để hiển thị nút "Xóa lọc"
   const isFilterActive = Boolean(
     search || statusFilter || deviceTypeFilter || connectionStateFilter,
   );
 
+  /**
+   * Đặt lại toàn bộ bộ lọc tìm kiếm USB về trạng thái mặc định.
+   */
   function handleResetFilters() {
     setSearch("");
     setStatusFilter("");
@@ -214,6 +255,7 @@ function UsbSecurityPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
+      {/* Tiêu đề trang kèm nút làm mới và đường dẫn tải Agent cài đặt trên máy nhân viên */}
       <WorkspacePageHeader
         eyebrow="Endpoint Security & DLP • Realtime USB Monitoring"
         title="Giám Sát & Quản Lý Thiết Bị Ngoại Vi USB"
@@ -243,9 +285,11 @@ function UsbSecurityPage() {
       />
 
       {/* Stat Cards */}
+      {/* Lưới thẻ thống kê tổng số thiết bị USB theo chính sách và trạng thái kết nối */}
       <UsbStatsGrid summary={summary} />
 
       {/* Multi-machine & Agent .exe Banner */}
+      {/* Banner hướng dẫn kết nối Agent qua mạng LAN và nút giả lập sự kiện USB */}
       <UsbAgentConnectionBanner
         networkInfo={networkInfo}
         onSimulateEvent={handleSimulateUsbEvent}
@@ -253,6 +297,7 @@ function UsbSecurityPage() {
       />
 
       {/* Tabs & Filter Controls */}
+      {/* Khung chứa Tab chuyển đổi (Thiết bị / Nhật ký) và thanh lọc tìm kiếm */}
       <div className="bg-white rounded-2xl border border-brand-bone p-4 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-brand-bone pb-3">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -268,6 +313,7 @@ function UsbSecurityPage() {
             </TabsList>
           </Tabs>
 
+          {/* Cảnh báo nổi bật khi phát hiện thiết bị USB mới chưa được phê duyệt */}
           {summary.unverifiedCount > 0 && (
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold">
               <ShieldAlert className="w-4 h-4 shrink-0" />
@@ -347,6 +393,7 @@ function UsbSecurityPage() {
       </div>
 
       {/* Main Content Table */}
+      {/* Hiển thị bảng thiết bị USB hoặc bảng nhật ký sự kiện tùy theo tab đang chọn */}
       <div className="bg-white rounded-2xl border border-brand-bone shadow-xs overflow-hidden">
         {activeTab === "devices" ? (
           <UsbDevicesTable
@@ -363,6 +410,7 @@ function UsbSecurityPage() {
       </div>
 
       {/* Modals */}
+      {/* Modal cập nhật chính sách Whitelist/Blacklist và ghi chú cho thiết bị USB */}
       {policyTarget && (
         <UsbPolicyModal
           device={policyTarget}
@@ -374,6 +422,7 @@ function UsbSecurityPage() {
         />
       )}
 
+      {/* Modal xác nhận xóa thiết bị USB và nhật ký liên quan */}
       {deleteTarget && (
         <ConfirmActionModal
           title={`Xác Nhận Xóa Thiết Bị USB "${deleteTarget.deviceName}"?`}
@@ -389,4 +438,3 @@ function UsbSecurityPage() {
 }
 
 export default UsbSecurityPage;
-

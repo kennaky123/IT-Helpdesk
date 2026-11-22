@@ -1,5 +1,18 @@
+/**
+ * Khối hiển thị trạng thái lỗi khi quá trình tải dữ liệu Dashboard từ API gặp sự cố.
+ *
+ * Props:
+ * - message: Nội dung thông báo lỗi chi tiết để người dùng nắm nguyên nhân.
+ * - onRetry: Hàm callback kích hoạt gọi lại API (refetch) khi người dùng bấm nút "Thử lại".
+ *
+ * Vai trò trong Dashboard:
+ * - Thay thế toàn bộ vùng nội dung Dashboard khi query chính bị lỗi, cung cấp đường thoát thử lại ngay tại chỗ.
+ */
 import { RefreshCw, TriangleAlert } from "lucide-react";
 
+/**
+ * Hiển thị cảnh báo lỗi với role="alert" cho khả năng tiếp cận và nút kích hoạt tải lại dữ liệu.
+ */
 function DashboardErrorState({ message, onRetry }) {
   return (
     <section
