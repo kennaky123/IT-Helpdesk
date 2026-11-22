@@ -17,8 +17,15 @@ const SPECIAL_PAGE_TITLES = {
   "/unauthorized": "Không có quyền truy cập",
 };
 
+function isTicketDetailWorkspace(pathname) {
+  return (
+    /^\/(?:admin|user|technician)\/tickets\/[^/]+$/.test(pathname) &&
+    pathname !== "/user/tickets/new"
+  );
+}
+
 function getSpecialPageTitle(pathname) {
-  if (/^\/(?:admin|user|technician)\/tickets\/[^/]+$/.test(pathname)) {
+  if (isTicketDetailWorkspace(pathname)) {
     return pathname.startsWith("/user/")
       ? "Chi tiết yêu cầu"
       : "Chi tiết ticket (3 Cột)";
@@ -41,13 +48,7 @@ function isFullBleedWorkspace(pathname) {
   ) {
     return true;
   }
-  if (
-    /^\/(?:admin|user|technician)\/tickets\/[^/]+$/.test(pathname) &&
-    pathname !== "/user/tickets/new"
-  ) {
-    return true;
-  }
-  return false;
+  return isTicketDetailWorkspace(pathname);
 }
 
 function AppLayout() {
@@ -127,6 +128,7 @@ function AppLayout() {
   }, [user?.role]);
 
   const fullBleed = isFullBleedWorkspace(pathname);
+  const isTicketDetail = isTicketDetailWorkspace(pathname);
 
   return (
     <div className="min-h-screen flex flex-col bg-brand-mist text-brand-ink">
@@ -154,10 +156,10 @@ function AppLayout() {
         >
           <AnimatePresence mode="wait">
             <motion.div
-              key={pathname}
-              initial={{ opacity: 0, y: 10 }}
+              key={isTicketDetail ? "ticket-detail-workspace" : pathname}
+              initial={isTicketDetail ? false : { opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
+              exit={isTicketDetail ? undefined : { opacity: 0, y: -6 }}
               transition={{ duration: 0.18, ease: "easeOut" }}
               className={
                 fullBleed

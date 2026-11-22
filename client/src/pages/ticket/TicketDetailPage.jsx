@@ -1,4 +1,5 @@
 import { ArrowLeft, LoaderCircle } from "lucide-react";
+import { motion } from "motion/react";
 import { useCallback, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -145,34 +146,17 @@ function TicketDetailPage() {
     [confirmationAction, queueList, ticketId, ticketState],
   );
 
-  if (ticketState.isTicketLoading && !ticketState.ticket) {
-    return (
-      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
-        <TicketDetailSkeleton />
-      </div>
-    );
-  }
-
-  if (ticketState.ticketError || !ticketState.ticket) {
-    return (
-      <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
-        <TicketDetailErrorState
-          message={getTicketDetailErrorMessage(ticketState.ticketError)}
-          backPath={backPath}
-          onRetry={ticketState.refetch}
-        />
-      </div>
-    );
-  }
-
   const ticket = ticketState.ticket;
+  const activeTicketId = ticket?._id ?? ticketId;
+  const isInitialLoading = ticketState.isTicketLoading && !ticket;
+  const hasLoadError = Boolean(ticketState.ticketError || !ticket);
 
   return (
     <section
-      aria-label={`Chi tiết ticket ${ticket.ticketCode}`}
+      aria-label={ticket ? `Chi tiết ticket ${ticket.ticketCode}` : "Chi tiết ticket"}
       className="flex min-h-[calc(100vh-3.5rem)] flex-col border-t border-brand-bone bg-white lg:h-[calc(100vh-3.5rem)] lg:flex-row lg:overflow-hidden"
     >
-      {/* Left Column: Compact Ticket Queue List (320px, matches DeskPro IT View 2) */}
+      {/* Left Column: Compact Ticket Queue List (Fixed, no fade-in animation) */}
       <aside className="hidden w-80 shrink-0 flex-col border-r border-brand-bone bg-white lg:flex">
         <div className="flex items-center justify-between border-b border-brand-bone bg-brand-mist/50 p-3.5">
           <Link
@@ -189,7 +173,7 @@ function TicketDetailPage() {
 
         <div className="custom-scrollbar flex-1 divide-y divide-brand-bone overflow-y-auto">
           {queueTickets.map((item) => {
-            const isActive = item._id === ticket._id;
+            const isActive = item._id === activeTicketId;
             const sla = getSlaDisplayForTicket(item);
             return (
               <Link
@@ -224,86 +208,126 @@ function TicketDetailPage() {
         </div>
       </aside>
 
-      {/* Center Column: Ticket Conversation & Activity Stream */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-brand-mist/30">
-        <TicketDetailHeader
-          ticket={ticket}
-          backPath={backPath}
-          refreshing={ticketState.isTicketLoading || ticketState.isRefreshing}
-          onRefresh={ticketState.refetch}
-        />
-
-        <div className="custom-scrollbar flex-1 space-y-5 overflow-y-auto p-6">
-          <TicketDescriptionCard ticket={ticket} />
-          <TicketAttachmentGallery
-            ticketId={ticket._id}
-            attachments={ticket.attachments}
-          />
-          <TicketHistoryTimeline
-            history={ticketState.history}
-            loading={ticketState.isHistoryLoading}
-            error={
-              ticketState.historyError
-                ? getTicketDetailErrorMessage(ticketState.historyError)
-                : ""
-            }
+      {isInitialLoading ? (
+        <motion.div
+          key={`loading-${ticketId}`}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className="flex-1 overflow-y-auto bg-brand-mist/30 px-4 py-6 sm:px-6"
+        >
+          <TicketDetailSkeleton />
+        </motion.div>
+      ) : hasLoadError ? (
+        <motion.div
+          key={`error-${ticketId}`}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className="flex-1 overflow-y-auto bg-brand-mist/30 px-4 py-6 sm:px-6"
+        >
+          <TicketDetailErrorState
+            message={getTicketDetailErrorMessage(ticketState.ticketError)}
+            backPath={backPath}
             onRetry={ticketState.refetch}
           />
-          <TicketConversation
-            comments={ticketState.comments}
-            loading={ticketState.areCommentsLoading}
-            error={
-              ticketState.commentsError
-                ? getTicketDetailErrorMessage(ticketState.commentsError)
-                : ""
-            }
-            canComment={permissions.canComment}
-            canCreateInternalNote={permissions.canCreateInternalNote}
-            onRetry={ticketState.refetch}
-            onSubmit={handleComment}
-          />
-        </div>
-      </div>
-
-      {/* Right Column: Context, Requester Profile, Asset Telemetry & Workflow Actions */}
-      <aside className="custom-scrollbar w-full shrink-0 border-t border-brand-bone bg-white lg:w-88 lg:overflow-y-auto lg:border-t-0 lg:border-l">
-        {ticketState.isTicketLoading ? (
-          <div
-            className="flex min-h-24 items-center justify-center border-b border-brand-bone p-4 text-xs text-brand-slate"
-            role="status"
+        </motion.div>
+      ) : (
+        <>
+          {/* Center Column: Ticket Conversation & Activity Stream */}
+          <motion.div
+            key={`center-${ticket._id}`}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="flex min-w-0 flex-1 flex-col overflow-hidden bg-brand-mist/30"
           >
-            <LoaderCircle
-              className="mr-2 size-4 animate-spin"
-              aria-hidden="true"
+            <TicketDetailHeader
+              ticket={ticket}
+              backPath={backPath}
+              refreshing={ticketState.isTicketLoading || ticketState.isRefreshing}
+              onRefresh={ticketState.refetch}
             />
-            Đang cập nhật thao tác...
-          </div>
-        ) : (
-          <TicketActionPanel
-            key={`${ticket._id}:${ticket.status}:${ticket.assignedTo?._id ?? "none"}`}
-            ticket={ticket}
-            permissions={permissions}
-            onAssign={(payload) =>
-              runTicketMutation(assignTicket(ticketId, payload))
-            }
-            onUpdateStatus={(payload) =>
-              runTicketMutation(updateTicketStatus(ticketId, payload))
-            }
-            onUpdateResolution={(resolution) =>
-              runTicketMutation(updateTicketResolution(ticketId, resolution))
-            }
-            onRequestCancel={() => {
-              setConfirmationError(null);
-              setConfirmationAction("cancel");
-            }}
-            onRequestClose={() => {
-              setConfirmationError(null);
-              setConfirmationAction("close");
-            }}
-          />
-        )}
-        <TicketMetadataCard ticket={ticket} />
-      </aside>
+
+            <div className="custom-scrollbar flex-1 space-y-5 overflow-y-auto p-6">
+              <TicketDescriptionCard ticket={ticket} />
+              <TicketAttachmentGallery
+                ticketId={ticket._id}
+                attachments={ticket.attachments}
+              />
+              <TicketHistoryTimeline
+                history={ticketState.history}
+                loading={ticketState.isHistoryLoading}
+                error={
+                  ticketState.historyError
+                    ? getTicketDetailErrorMessage(ticketState.historyError)
+                    : ""
+                }
+                onRetry={ticketState.refetch}
+              />
+              <TicketConversation
+                comments={ticketState.comments}
+                loading={ticketState.areCommentsLoading}
+                error={
+                  ticketState.commentsError
+                    ? getTicketDetailErrorMessage(ticketState.commentsError)
+                    : ""
+                }
+                canComment={permissions.canComment}
+                canCreateInternalNote={permissions.canCreateInternalNote}
+                onRetry={ticketState.refetch}
+                onSubmit={handleComment}
+              />
+            </div>
+          </motion.div>
+
+          {/* Right Column: Context, Requester Profile, Asset Telemetry & Workflow Actions */}
+          <motion.aside
+            key={`right-${ticket._id}`}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="custom-scrollbar w-full shrink-0 border-t border-brand-bone bg-white lg:w-88 lg:overflow-y-auto lg:border-t-0 lg:border-l"
+          >
+            {ticketState.isTicketLoading ? (
+              <div
+                className="flex min-h-24 items-center justify-center border-b border-brand-bone p-4 text-xs text-brand-slate"
+                role="status"
+              >
+                <LoaderCircle
+                  className="mr-2 size-4 animate-spin"
+                  aria-hidden="true"
+                />
+                Đang cập nhật thao tác...
+              </div>
+            ) : (
+              <TicketActionPanel
+                key={`${ticket._id}:${ticket.status}:${ticket.assignedTo?._id ?? "none"}`}
+                ticket={ticket}
+                permissions={permissions}
+                onAssign={(payload) =>
+                  runTicketMutation(assignTicket(ticketId, payload))
+                }
+                onUpdateStatus={(payload) =>
+                  runTicketMutation(updateTicketStatus(ticketId, payload))
+                }
+                onUpdateResolution={(resolution) =>
+                  runTicketMutation(updateTicketResolution(ticketId, resolution))
+                }
+                onRequestCancel={() => {
+                  setConfirmationError(null);
+                  setConfirmationAction("cancel");
+                }}
+                onRequestClose={() => {
+                  setConfirmationError(null);
+                  setConfirmationAction("close");
+                }}
+              />
+            )}
+            <TicketMetadataCard ticket={ticket} />
+          </motion.aside>
+        </>
+      )}
 
       {confirmationAction ? (
         <ConfirmActionModal
