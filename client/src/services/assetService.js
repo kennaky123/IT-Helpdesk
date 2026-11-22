@@ -99,12 +99,11 @@ export async function launchRemoteDesktop(tool, rawId) {
   }
 
   // Tự động copy ID vào Clipboard
-  if (navigator?.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(id);
-    } catch {
-      // Bỏ qua lỗi clipboard nếu trình duyệt chặn
-    }
+  try {
+    const { copyTextToClipboard } = await import("../utils/clipboard.js");
+    await copyTextToClipboard(id);
+  } catch {
+    // Bỏ qua lỗi clipboard nếu trình duyệt chặn
   }
 
   let protocolUrl;

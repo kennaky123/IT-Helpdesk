@@ -1,6 +1,7 @@
 import { Copy, Download, Laptop, Network, Sparkles, Terminal } from "lucide-react";
 import { toast } from "react-toastify";
 import { getAgentDownloadUrl } from "../../services/usbService.js";
+import { copyTextToClipboard } from "../../utils/clipboard.js";
 
 function UsbAgentConnectionBanner({ networkInfo, onSimulateEvent, isSimulating }) {
   const lanList = networkInfo?.lanAddresses || [];
@@ -9,7 +10,7 @@ function UsbAgentConnectionBanner({ networkInfo, onSimulateEvent, isSimulating }
 
   async function copyToClipboard(text, label) {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyTextToClipboard(text);
       toast.success(`Đã sao chép ${label}: ${text}`);
     } catch {
       toast.info(`${label}: ${text}`);

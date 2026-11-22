@@ -13,6 +13,7 @@ import {
 import { useState } from "react";
 import { toast } from "react-toastify";
 import { formatCurrencyVND } from "../../services/softwareService.js";
+import { copyTextToClipboard } from "../../utils/clipboard.js";
 import { formatTicketDateTime } from "../../utils/ticketPermissions.js";
 
 const STATUS_CONFIG = {
@@ -74,7 +75,7 @@ function SoftwareTable({
   async function handleCopyKey(license) {
     if (!license.licenseKey) return;
     try {
-      await navigator.clipboard.writeText(license.licenseKey);
+      await copyTextToClipboard(license.licenseKey);
       setCopiedId(license._id);
       toast.success(`Đã sao chép License Key của ${license.name}`);
       setTimeout(() => {

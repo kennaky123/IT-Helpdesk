@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Check, Copy, ExternalLink, Laptop, Tv, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { launchRemoteDesktop, updateAsset } from "../../services/assetService.js";
+import { copyTextToClipboard } from "../../utils/clipboard.js";
 
 function RemoteConnectModal({ asset, onClose, onUpdated }) {
   const [copied, setCopied] = useState(false);
@@ -27,7 +28,7 @@ function RemoteConnectModal({ asset, onClose, onUpdated }) {
   async function handleCopy() {
     if (!remoteId.trim()) return;
     try {
-      await navigator.clipboard.writeText(remoteId.trim());
+      await copyTextToClipboard(remoteId.trim());
       setCopied(true);
       toast.info(`Đã sao chép ID: ${remoteId.trim()}`);
       setTimeout(() => setCopied(false), 2000);

@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "react-toastify";
+import { copyTextToClipboard } from "../../../utils/clipboard.js";
 
 function TroubleshootingConfirmationModal({
   categoryName = "Sự cố kỹ thuật",
@@ -26,12 +27,16 @@ function TroubleshootingConfirmationModal({
   const [copiedId, setCopiedId] = useState(null);
   const [triedGuides, setTriedGuides] = useState(() => new Set());
 
-  function handleCopyCommand(command, id) {
+  async function handleCopyCommand(command, id) {
     if (!command) return;
-    navigator.clipboard?.writeText(command);
-    setCopiedId(id);
-    toast.info(`Đã sao chép: ${command}`);
-    setTimeout(() => setCopiedId(null), 2000);
+    try {
+      await copyTextToClipboard(command);
+      setCopiedId(id);
+      toast.info(`Đã sao chép: ${command}`);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      toast.error("Không thể sao chép lệnh.");
+    }
   }
 
   function toggleTried(guideId) {

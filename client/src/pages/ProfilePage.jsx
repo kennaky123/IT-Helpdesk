@@ -28,6 +28,7 @@ import {
   updateUserProfile,
 } from "../services/userService.js";
 import { getAvatarUrl, getInitials } from "../utils/adminUserFormatters.js";
+import { copyTextToClipboard } from "../utils/clipboard.js";
 import { formatTicketDateTime } from "../utils/ticketPermissions.js";
 
 const inputClass =
@@ -87,7 +88,7 @@ function ProfilePage() {
   async function handleCopyLicenseKey(license) {
     if (!license.licenseKey) return;
     try {
-      await navigator.clipboard.writeText(license.licenseKey);
+      await copyTextToClipboard(license.licenseKey);
       setCopiedLicenseId(license._id);
       toast.success(`Đã sao chép License Key của ${license.name}`);
       setTimeout(() => {
