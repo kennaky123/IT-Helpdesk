@@ -7,7 +7,11 @@ function useClickOutside(ref, onClickOutside, enabled = true) {
     }
 
     function handlePointerDown(event) {
-      if (ref.current && !ref.current.contains(event.target)) {
+      if (!ref.current || ref.current.getClientRects().length === 0) {
+        return;
+      }
+
+      if (!ref.current.contains(event.target)) {
         onClickOutside();
       }
     }

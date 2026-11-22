@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { LockKeyhole, Plus, Trash2, UnlockKeyhole } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import UserDetailDrawer from "../../components/admin/users/UserDetailDrawer.jsx";
@@ -11,6 +11,7 @@ import UsersTable from "../../components/admin/users/UsersTable.jsx";
 import ConfirmActionModal from "../../components/common/ConfirmActionModal.jsx";
 import WorkspacePageHeader from "../../components/common/WorkspacePageHeader.jsx";
 import { Button } from "../../components/ui/button.jsx";
+import useAuth from "../../hooks/useAuth.js";
 import {
   createAdminUser,
   deleteAdminUser,
@@ -24,6 +25,7 @@ import { normalizeSearch } from "../../utils/adminUserFormatters.js";
 const EMPTY_FILTERS = { search: "", status: "", role: "" };
 
 function AdminUsersPage() {
+  const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
@@ -35,6 +37,8 @@ function AdminUsersPage() {
   const [detailUser, setDetailUser] = useState(null);
   const [deleteUser, setDeleteUser] = useState(null);
   const [deleteError, setDeleteError] = useState(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkActionPending, setBulkActionPending] = useState(false);
 
   const {
     data: users = [],
@@ -53,8 +57,12 @@ function AdminUsersPage() {
 
   function invalidateUsers() {
     queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+    queryClient.invalidateQueries({ queryKey: ["admin", "technicians"] });
     queryClient.invalidateQueries({ queryKey: ["technicians"] });
     queryClient.invalidateQueries({ queryKey: ["tickets", "filter-options"] });
+    queryClient.invalidateQueries({ queryKey: ["tickets"] });
+    queryClient.invalidateQueries({ queryKey: ["assets"] });
+    queryClient.invalidateQueries({ queryKey: ["software"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
   }
 
@@ -175,6 +183,77 @@ function AdminUsersPage() {
     deleteMutation.mutate(deleteUser.id);
   }
 
+  async function handleBulkLockStatus(nextStatus) {
+    const targetIds = Array.from(selectedIds).filter(
+      (id) => !(nextStatus === "locked" && id === currentUser?._id),
+    );
+
+    if (targetIds.length === 0) {
+      toast.warning("Không thể tự khóa tài khoản đang đăng nhập.");
+      return;
+    }
+
+    setBulkActionPending(true);
+    try {
+      const results = await Promise.allSettled(
+        targetIds.map((id) => updateAdminUserStatus(id, nextStatus)),
+      );
+      const succeeded = results.filter((item) => item.status === "fulfilled").length;
+      const failed = results.length - succeeded;
+      invalidateUsers();
+      setSelectedIds(new Set());
+
+      if (succeeded > 0) {
+        toast.success(
+          nextStatus === "locked"
+            ? `Đã khóa ${succeeded} tài khoản.`
+            : `Đã mở khóa ${succeeded} tài khoản.`,
+        );
+      }
+      if (failed > 0) {
+        toast.error(`Có ${failed} tài khoản cập nhật trạng thái thất bại.`);
+      }
+    } finally {
+      setBulkActionPending(false);
+    }
+  }
+
+  async function handleBulkDeleteConfirm() {
+    const targetIds = Array.from(selectedIds).filter(
+      (id) => id !== currentUser?._id,
+    );
+
+    if (targetIds.length === 0) {
+      setBulkDeleteOpen(false);
+      toast.warning("Không thể tự xóa tài khoản đang đăng nhập.");
+      return;
+    }
+
+    setBulkActionPending(true);
+    try {
+      const results = await Promise.allSettled(
+        targetIds.map((id) => deleteAdminUser(id)),
+      );
+      const succeeded = results.filter((item) => item.status === "fulfilled").length;
+      const failed = results.length - succeeded;
+      invalidateUsers();
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
+
+      if (detailUser && targetIds.includes(detailUser.id)) {
+        setDetailUser(null);
+      }
+      if (succeeded > 0) {
+        toast.success(`Đã xóa ${succeeded} tài khoản khỏi hệ thống.`);
+      }
+      if (failed > 0) {
+        toast.error(`Có ${failed} tài khoản xóa thất bại.`);
+      }
+    } finally {
+      setBulkActionPending(false);
+    }
+  }
+
   return (
     <section aria-labelledby="admin-users-title">
       <WorkspacePageHeader
@@ -208,6 +287,56 @@ function AdminUsersPage() {
           }}
         />
       </div>
+
+      {selectedIds.size > 0 ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-purple-200 bg-purple-50/70 px-4 py-3">
+          <p className="text-xs font-semibold text-brand-onyx">
+            Đã chọn <span className="font-bold text-brand-violet">{selectedIds.size}</span> tài khoản
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={bulkActionPending}
+              onClick={() => handleBulkLockStatus("locked")}
+            >
+              <LockKeyhole className="size-3.5" aria-hidden="true" />
+              Khóa đã chọn
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={bulkActionPending}
+              onClick={() => handleBulkLockStatus("active")}
+            >
+              <UnlockKeyhole className="size-3.5" aria-hidden="true" />
+              Mở khóa đã chọn
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              disabled={bulkActionPending}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2 className="size-3.5" aria-hidden="true" />
+              Xóa đã chọn
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={bulkActionPending}
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Bỏ chọn
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-4" aria-busy={isLoading}>
         {isLoading ? (
           <UserListSkeleton />
@@ -278,12 +407,22 @@ function AdminUsersPage() {
             users.find((user) => user.id === detailUser.id) ?? detailUser
           }
           onClose={closeDetail}
+          onEdit={(target) => {
+            setDetailUser(null);
+            setFormUser(target);
+            setFormOpen(true);
+          }}
+          onToggleLock={toggleLock}
+          onDelete={(target) => {
+            setDetailUser(null);
+            setDeleteUser(target);
+          }}
         />
       ) : null}
       {deleteUser ? (
         <ConfirmActionModal
           title="Xóa tài khoản người dùng?"
-          description={`Tài khoản ${deleteUser.fullName} sẽ bị xóa vĩnh viễn khỏi hệ thống.`}
+          description={`Tài khoản ${deleteUser.fullName} sẽ bị xóa vĩnh viễn và tự động thu hồi thiết bị, bản quyền, ticket liên quan.`}
           confirmLabel="Xóa tài khoản"
           submitting={deleteMutation.isPending}
           error={deleteError}
@@ -292,6 +431,16 @@ function AdminUsersPage() {
             setDeleteError(null);
           }}
           onConfirm={confirmDelete}
+        />
+      ) : null}
+      {bulkDeleteOpen ? (
+        <ConfirmActionModal
+          title={`Xóa ${selectedIds.size} tài khoản đã chọn?`}
+          description="Các tài khoản đã chọn (ngoại trừ tài khoản đang đăng nhập) sẽ bị xóa vĩnh viễn và tự động thu hồi thiết bị, bản quyền, ticket liên quan."
+          confirmLabel="Xóa đã chọn"
+          submitting={bulkActionPending}
+          onCancel={() => setBulkDeleteOpen(false)}
+          onConfirm={handleBulkDeleteConfirm}
         />
       ) : null}
     </section>

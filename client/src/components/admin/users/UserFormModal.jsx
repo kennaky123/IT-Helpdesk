@@ -162,12 +162,12 @@ function UserFormModal({ user, users, onClose, onSave }) {
             <DialogDescription className="text-xs">
               {isEditing
                 ? "Cập nhật thông tin tài khoản trong hệ thống."
-                : "Tạo tài khoản mới vào cơ sở dữ liệu PostgreSQL."}
+                : "Tạo tài khoản mới trong hệ thống."}
             </DialogDescription>
           </div>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit(onValidSubmit)} noValidate>
+        <form onSubmit={(event) => handleSubmit(onValidSubmit)(event)} noValidate>
           <div className="grid gap-4 p-5 sm:grid-cols-2 sm:p-6">
             <label className="sm:col-span-2">
               <span className="text-sm font-semibold text-slate-700">

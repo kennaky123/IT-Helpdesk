@@ -1,7 +1,14 @@
 import { unlink } from "node:fs/promises";
 import { getUploadedFilePath } from "../config/upload.js";
+import Asset from "../models/Asset.js";
+import AssetRequest from "../models/AssetRequest.js";
+import Comment from "../models/Comment.js";
+import Rating from "../models/Rating.js";
+import SoftwareLicense from "../models/SoftwareLicense.js";
 import Ticket from "../models/Ticket.js";
+import UsbDevice from "../models/UsbDevice.js";
 import User from "../models/User.js";
+import { publishDataChanged } from "../services/realtimeService.js";
 import ApiError from "../utils/ApiError.js";
 
 function serializeAdminUser(user, stats = { count: 0, recentTickets: [] }) {
@@ -92,6 +99,7 @@ export async function createAdminUser(request, response, next) {
       status: request.body.status,
     });
 
+    publishDataChanged("users");
     return response.status(201).json({
       success: true,
       message: "Thêm tài khoản người dùng thành công.",
@@ -141,6 +149,7 @@ export async function updateAdminUser(request, response, next) {
     }
 
     await user.save();
+    publishDataChanged("users");
     const statsMap = await getUserTicketStats(user._id);
 
     return response.status(200).json({
@@ -171,6 +180,7 @@ export async function updateAdminUserStatus(request, response, next) {
       user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     }
     await user.save();
+    publishDataChanged("users");
 
     const statsMap = await getUserTicketStats(user._id);
     return response.status(200).json({
@@ -199,14 +209,63 @@ export async function deleteAdminUser(request, response, next) {
       throw new ApiError(400, "Không thể tự xóa tài khoản đang đăng nhập.");
     }
 
-    const relatedTickets = await Ticket.exists({
-      $or: [{ createdBy: user._id }, { assignedTo: user._id }],
-    });
-    if (relatedTickets) {
-      throw new ApiError(
-        409,
-        "Không thể xóa tài khoản đã phát sinh ticket liên quan. Hãy khóa tài khoản thay thế.",
-      );
+    const assignedAssets = await Asset.find({ assignedTo: user._id });
+    for (const asset of assignedAssets) {
+      asset.status = "in_stock";
+      asset.assignedTo = null;
+      asset.assignedAt = null;
+      asset.history.push({
+        action: "returned",
+        user: user._id,
+        performedBy: request.user._id,
+        note: `Tự động thu hồi về kho khi xóa tài khoản ${user.fullName}.`,
+      });
+      await asset.save();
+    }
+
+    await Promise.all([
+      AssetRequest.deleteMany({ employee: user._id }),
+      AssetRequest.updateMany(
+        { technician: user._id },
+        { $set: { technician: null } },
+      ),
+      SoftwareLicense.updateMany(
+        { "assignedUsers.user": user._id },
+        { $pull: { assignedUsers: { user: user._id } } },
+      ),
+      UsbDevice.updateMany(
+        { assignedUser: user._id },
+        { $set: { assignedUser: null } },
+      ),
+    ]);
+
+    const createdTickets = await Ticket.find({ createdBy: user._id })
+      .select("_id")
+      .lean();
+    const createdTicketIds = createdTickets.map((ticket) => ticket._id);
+
+    await Promise.all([
+      Comment.deleteMany({
+        $or: [
+          { sender: user._id },
+          ...(createdTicketIds.length ? [{ ticket: { $in: createdTicketIds } }] : []),
+        ],
+      }),
+      Rating.deleteMany({
+        $or: [
+          { ratedBy: user._id },
+          { technician: user._id },
+          ...(createdTicketIds.length ? [{ ticket: { $in: createdTicketIds } }] : []),
+        ],
+      }),
+      Ticket.updateMany(
+        { assignedTo: user._id },
+        { $set: { assignedTo: null } },
+      ),
+    ]);
+
+    if (createdTicketIds.length > 0) {
+      await Ticket.deleteMany({ _id: { $in: createdTicketIds } });
     }
 
     await User.deleteOne({ _id: user._id });
@@ -217,6 +276,11 @@ export async function deleteAdminUser(request, response, next) {
         // Ảnh đại diện cũ có thể là URL ngoài hoặc đã bị dọn trước đó.
       }
     }
+
+    publishDataChanged("users");
+    publishDataChanged("assets");
+    publishDataChanged("software");
+    publishDataChanged("tickets");
 
     return response.status(200).json({
       success: true,

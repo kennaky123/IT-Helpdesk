@@ -1,15 +1,31 @@
-import { CalendarDays, Clock3, Mail, Phone, Ticket, UserRound, X } from "lucide-react";
+import {
+  CalendarDays,
+  Clock3,
+  Edit3,
+  LockKeyhole,
+  Mail,
+  Phone,
+  Ticket,
+  Trash2,
+  UnlockKeyhole,
+  UserRound,
+  X,
+} from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { USER_ROLE, USER_STATUS } from "../../../data/adminUsers.js";
 import { formatUserDate, formatUserDateTime, getInitials } from "../../../utils/adminUserFormatters.js";
+import { getTicketStatusLabel } from "../../../utils/ticketPermissions.js";
+import { Button } from "../../ui/button.jsx";
 
-function UserDetailDrawer({ user, onClose }) {
+function UserDetailDrawer({ user, onClose, onEdit, onToggleLock, onDelete }) {
   const titleId = useId();
   const closeRef = useRef(null);
   const status = USER_STATUS[user.status] ?? USER_STATUS.unverified;
   const role = USER_ROLE[user.role] ?? USER_ROLE.user;
+  const LockIcon = user.status === "locked" ? UnlockKeyhole : LockKeyhole;
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -71,9 +87,80 @@ function UserDetailDrawer({ user, onClose }) {
 
           <section className="mt-4 overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
             <div className="border-b border-slate-200 px-5 py-4"><h3 className="font-bold text-slate-900">Yêu cầu gần đây</h3><p className="mt-1 text-xs text-slate-500">Các ticket mới nhất do người dùng tạo</p></div>
-            {user.recentTickets?.length ? <ul className="divide-y divide-slate-100">{user.recentTickets.map((ticket) => <li key={ticket.code} className="px-5 py-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-bold text-blue-700">{ticket.code}</p><p className="mt-1 truncate text-sm font-semibold text-slate-800">{ticket.title}</p></div><span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{ticket.status}</span></div></li>)}</ul> : <p className="px-5 py-8 text-center text-sm text-slate-500">Người dùng chưa tạo yêu cầu nào.</p>}
+            {user.recentTickets?.length ? (
+              <ul className="divide-y divide-slate-100">
+                {user.recentTickets.map((ticket) => (
+                  <li key={ticket._id ?? ticket.code}>
+                    {ticket._id ? (
+                      <Link
+                        to={`/admin/tickets/${ticket._id}`}
+                        onClick={onClose}
+                        className="block px-5 py-4 transition-colors hover:bg-slate-50"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-blue-700">{ticket.code}</p>
+                            <p className="mt-1 truncate text-sm font-semibold text-slate-800">{ticket.title}</p>
+                          </div>
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                            {getTicketStatusLabel(ticket.status)}
+                          </span>
+                        </div>
+                      </Link>
+                    ) : (
+                      <div className="px-5 py-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-blue-700">{ticket.code}</p>
+                            <p className="mt-1 truncate text-sm font-semibold text-slate-800">{ticket.title}</p>
+                          </div>
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                            {getTicketStatusLabel(ticket.status)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-5 py-8 text-center text-sm text-slate-500">Người dùng chưa tạo yêu cầu nào.</p>
+            )}
           </section>
         </div>
+
+        <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white px-5 py-3.5 sm:px-6">
+          {onEdit ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onEdit(user)}
+            >
+              <Edit3 className="size-4" aria-hidden="true" />
+              Chỉnh sửa
+            </Button>
+          ) : null}
+          {onToggleLock ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onToggleLock(user)}
+            >
+              <LockIcon className="size-4" aria-hidden="true" />
+              {user.status === "locked" ? "Mở khóa tài khoản" : "Khóa tài khoản"}
+            </Button>
+          ) : null}
+          {onDelete ? (
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => onDelete(user)}
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+              Xóa tài khoản
+            </Button>
+          ) : null}
+        </footer>
       </motion.aside>
     </div>,
     document.body,

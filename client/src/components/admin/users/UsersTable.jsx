@@ -37,19 +37,24 @@ function RoleBadge({ role }) {
   );
 }
 
-function UserIdentity({ user }) {
+function UserIdentity({ user, onClick }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700" aria-hidden="true">{getInitials(user.fullName)}</span>
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex w-full min-w-0 items-center gap-3 text-left"
+      title={`Xem chi tiết ${user.fullName}`}
+    >
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700 transition group-hover:bg-blue-200" aria-hidden="true">{getInitials(user.fullName)}</span>
       <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-slate-900">{user.fullName}</p>
+        <p className="truncate text-sm font-semibold text-slate-900 transition group-hover:text-brand-violet">{user.fullName}</p>
         <p className="truncate text-xs text-slate-500">{user.email}</p>
       </div>
-    </div>
+    </button>
   );
 }
 
-function UserActionMenu({ user, open, onToggle, onClose, onView, onEdit, onToggleLock, onDelete }) {
+function UserActionMenu({ user, open, openUpward = false, onToggle, onClose, onView, onEdit, onToggleLock, onDelete }) {
   const menuRef = useRef(null);
   useClickOutside(menuRef, onClose, open);
   const ActionIcon = user.status === "locked" ? UnlockKeyhole : LockKeyhole;
@@ -60,7 +65,12 @@ function UserActionMenu({ user, open, onToggle, onClose, onView, onEdit, onToggl
         <MoreHorizontal className="size-5" aria-hidden="true" />
       </button>
       {open ? (
-        <div className="absolute top-11 right-0 z-30 w-56 rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-xl" role="menu">
+        <div
+          className={`absolute right-0 z-30 w-56 rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-xl ${
+            openUpward ? "bottom-11" : "top-11"
+          }`}
+          role="menu"
+        >
           <button type="button" onClick={onView} className="flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-sm text-slate-700 hover:bg-slate-50" role="menuitem"><Eye className="size-4" />Xem chi tiết</button>
           <button type="button" onClick={onEdit} className="flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-sm text-slate-700 hover:bg-slate-50" role="menuitem"><Edit3 className="size-4" />Chỉnh sửa</button>
           <button type="button" onClick={onToggleLock} className="flex min-h-10 w-full items-center gap-3 rounded-lg px-3 text-sm text-slate-700 hover:bg-slate-50" role="menuitem"><ActionIcon className="size-4" />{user.status === "locked" ? "Mở khóa tài khoản" : "Khóa tài khoản"}</button>
@@ -101,7 +111,17 @@ function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange }) {
 
 function UsersTable({ users, total, page, pageSize, selectedIds, openMenuId, onSelect, onSelectPage, onMenuToggle, onMenuClose, onView, onEdit, onToggleLock, onDelete, onPageChange, onPageSizeChange }) {
   const allSelected = users.length > 0 && users.every((user) => selectedIds.has(user.id));
-  const menuProps = (user) => ({ user, open: openMenuId === user.id, onToggle: () => onMenuToggle(user.id), onClose: onMenuClose, onView: () => onView(user), onEdit: () => onEdit(user), onToggleLock: () => onToggleLock(user), onDelete: () => onDelete(user) });
+  const menuProps = (user, scope, index) => ({
+    user,
+    open: openMenuId === `${scope}:${user.id}`,
+    openUpward: scope === "desktop" && users.length > 2 && index >= users.length - 2,
+    onToggle: () => onMenuToggle(`${scope}:${user.id}`),
+    onClose: onMenuClose,
+    onView: () => onView(user),
+    onEdit: () => onEdit(user),
+    onToggleLock: () => onToggleLock(user),
+    onDelete: () => onDelete(user),
+  });
 
   return (
     <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white shadow-sm" aria-labelledby="users-table-title">
@@ -115,12 +135,12 @@ function UsersTable({ users, total, page, pageSize, selectedIds, openMenuId, onS
       ) : (
         <>
           <ul className="divide-y divide-slate-100 lg:hidden">
-            {users.map((user) => (
+            {users.map((user, index) => (
               <li key={user.id} className="p-4">
                 <div className="flex items-start gap-3">
                   <input type="checkbox" checked={selectedIds.has(user.id)} onChange={() => onSelect(user.id)} className="mt-3 size-4 rounded border-slate-300 accent-blue-600" aria-label={`Chọn ${user.fullName}`} />
-                  <div className="min-w-0 flex-1"><UserIdentity user={user} /></div>
-                  <UserActionMenu {...menuProps(user)} />
+                  <div className="min-w-0 flex-1"><UserIdentity user={user} onClick={() => onView(user)} /></div>
+                  <UserActionMenu {...menuProps(user, "mobile", index)} />
                 </div>
                 <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
                   <div><dt className="text-slate-500">Số điện thoại</dt><dd className="mt-1 font-medium text-slate-700">{user.phone}</dd></div>
@@ -156,7 +176,7 @@ function UsersTable({ users, total, page, pageSize, selectedIds, openMenuId, onS
                 </TableRow>
               </TableHeader>
               <TableBody className="divide-y divide-slate-100">
-                {users.map((user) => (
+                {users.map((user, index) => (
                   <TableRow key={user.id} className="hover:bg-blue-50/40">
                     <TableCell className="px-5 py-4">
                       <input
@@ -168,7 +188,7 @@ function UsersTable({ users, total, page, pageSize, selectedIds, openMenuId, onS
                       />
                     </TableCell>
                     <TableCell className="max-w-64 px-3 py-4">
-                      <UserIdentity user={user} />
+                      <UserIdentity user={user} onClick={() => onView(user)} />
                     </TableCell>
                     <TableCell className="whitespace-nowrap px-3 py-4 text-sm text-slate-600">
                       {user.phone || "—"}
@@ -188,7 +208,7 @@ function UsersTable({ users, total, page, pageSize, selectedIds, openMenuId, onS
                       </time>
                     </TableCell>
                     <TableCell className="px-5 py-4 text-right">
-                      <UserActionMenu {...menuProps(user)} />
+                      <UserActionMenu {...menuProps(user, "desktop", index)} />
                     </TableCell>
                   </TableRow>
                 ))}
