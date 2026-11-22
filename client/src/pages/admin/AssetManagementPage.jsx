@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   HardDrive,
@@ -20,8 +21,8 @@ import RemoteConnectModal from "../../components/assets/RemoteConnectModal.jsx";
 import ReturnAssetModal from "../../components/assets/ReturnAssetModal.jsx";
 import ConfirmActionModal from "../../components/common/ConfirmActionModal.jsx";
 import WorkspacePageHeader from "../../components/common/WorkspacePageHeader.jsx";
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.jsx";
 import useAuth from "../../hooks/useAuth.js";
-import { REALTIME_DATA_EVENT } from "../../hooks/useRealtimeUpdates.js";
 import {
   acceptAssetRequest,
   cancelAssetRequest,
@@ -31,19 +32,16 @@ import {
 } from "../../services/assetService.js";
 
 function AssetManagementPage() {
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const role = user?.role || "admin";
 
   const [activeTab, setActiveTab] = useState("assets"); // "assets" | "requests"
-  const [assets, setAssets] = useState([]);
-  const [summary, setSummary] = useState({});
-  const [requests, setRequests] = useState([]);
 
   // Filters
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
 
   // Modals state
   const [formAsset, setFormAsset] = useState(null); // null = closed, {} = create, obj = edit
@@ -58,51 +56,31 @@ function AssetManagementPage() {
   const [completeRequestTarget, setCompleteRequestTarget] = useState(null);
   const [cancelRequestTarget, setCancelRequestTarget] = useState(null);
 
-  const refreshData = useCallback(() => {
-    setReloadKey((prev) => prev + 1);
-  }, []);
+  const assetsQuery = useQuery({
+    queryKey: ["assets", "list", { search, status: statusFilter, type: typeFilter }],
+    queryFn: ({ signal }) =>
+      getAssets({ search, status: statusFilter, type: typeFilter }, { signal }),
+  });
+
+  const requestsQuery = useQuery({
+    queryKey: ["assets", "requests"],
+    queryFn: ({ signal }) => getAssetRequests({}, { signal }),
+  });
 
   useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-
-    Promise.all([
-      getAssets(
-        { search, status: statusFilter, type: typeFilter },
-        { signal: controller.signal },
-      ),
-      getAssetRequests({}, { signal: controller.signal }),
-    ])
-      .then(([assetRes, reqRes]) => {
-        if (!cancelled) {
-          setAssets(assetRes.assets || []);
-          setSummary(assetRes.summary || {});
-          setRequests(reqRes || []);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled && error.code !== "ERR_CANCELED") {
-          toast.error(error.message || "Không thể tải dữ liệu kho thiết bị.");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [search, statusFilter, typeFilter, reloadKey]);
-
-  // Listen to realtime updates
-  useEffect(() => {
-    function handleRealtime(event) {
-      const detail = event.detail;
-      if (!detail?.resource || detail.resource === "assets" || detail.resource === "system") {
-        refreshData();
-      }
+    const error = assetsQuery.error || requestsQuery.error;
+    if (error) {
+      toast.error(error.message || "Không thể tải dữ liệu kho thiết bị.");
     }
-    window.addEventListener(REALTIME_DATA_EVENT, handleRealtime);
-    return () => window.removeEventListener(REALTIME_DATA_EVENT, handleRealtime);
-  }, [refreshData]);
+  }, [assetsQuery.error, requestsQuery.error]);
+
+  const assets = assetsQuery.data?.assets || [];
+  const summary = useMemo(() => assetsQuery.data?.summary || {}, [assetsQuery.data]);
+  const requests = useMemo(() => requestsQuery.data || [], [requestsQuery.data]);
+
+  const refreshData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["assets"] });
+  }, [queryClient]);
 
   // Actions
   async function handleDeleteConfirm() {
@@ -192,43 +170,28 @@ function AssetManagementPage() {
       {/* Tabs and Filters */}
       <div className="bg-white rounded-2xl border border-brand-bone shadow-xs overflow-hidden">
         {/* Navigation Tabs */}
-        <div className="flex items-center justify-between border-b border-brand-bone px-5 pt-3">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveTab("assets")}
-              className={`flex items-center gap-2 pb-3 px-2 text-xs font-bold border-b-2 transition-all ${
-                activeTab === "assets"
-                  ? "border-brand-violet text-brand-violet"
-                  : "border-transparent text-brand-slate hover:text-brand-ink"
-              }`}
-            >
-              <Laptop className="w-4 h-4" />
-              Kho Thiết Bị & Đang Sử Dụng
-              <span className="px-2 py-0.5 rounded-full text-[10px] bg-purple-100/70 text-brand-violet">
-                {summary.total ?? 0}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab("requests")}
-              className={`flex items-center gap-2 pb-3 px-2 text-xs font-bold border-b-2 transition-all ${
-                activeTab === "requests"
-                  ? "border-brand-violet text-brand-violet"
-                  : "border-transparent text-brand-slate hover:text-brand-ink"
-              }`}
-            >
-              <Send className="w-4 h-4" />
-              Yêu Cầu Cấp Phát Laptop
-              {pendingRequestsCount > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800 font-bold">
-                  {pendingRequestsCount} chờ xử lý
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <div className="flex items-center justify-between border-b border-brand-bone px-5 py-2.5">
+            <TabsList>
+              <TabsTrigger value="assets">
+                <Laptop className="w-4 h-4" />
+                Kho Thiết Bị & Đang Sử Dụng
+                <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/80 text-brand-ink">
+                  {summary.total ?? 0}
                 </span>
-              )}
-            </button>
+              </TabsTrigger>
+              <TabsTrigger value="requests">
+                <Send className="w-4 h-4" />
+                Yêu Cầu Cấp Phát Laptop
+                {pendingRequestsCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800 font-bold">
+                    {pendingRequestsCount} chờ xử lý
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
           </div>
-        </div>
+        </Tabs>
 
         {/* Tab 1: Assets in stock & in use */}
         {activeTab === "assets" && (

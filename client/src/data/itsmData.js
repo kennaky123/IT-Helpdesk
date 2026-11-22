@@ -313,80 +313,69 @@ export const VLAN_SUBNETS = [
   },
 ];
 
-const ASSET_PROFILES = [
-  {
-    model: "MacBook Pro M2 14-inch (2023)",
-    assetPrefix: "IT-MBP-2023",
-    os: "macOS Sequoia 15.0.1",
-    ipPrefix: "192.168.10.",
-    antivirus: "SentinelOne v23.4 (Active)",
-    location: "Tầng 4, Tòa Nhà Alpha",
-  },
-  {
-    model: "Dell XPS 15 9530",
-    assetPrefix: "IT-DELL-2024",
-    os: "Ubuntu 24.04 LTS",
-    ipPrefix: "192.168.20.",
-    antivirus: "CrowdStrike Falcon (Active)",
-    location: "Tầng 2, Khu R&D",
-  },
-  {
-    model: "ThinkPad P16 Gen 2 (Workstation)",
-    assetPrefix: "IT-TP-2023",
-    os: "Windows 11 Pro 23H2",
-    ipPrefix: "192.168.30.",
-    antivirus: "SentinelOne EDR (Active)",
-    location: "Tầng 3, Phòng Kế Toán & Marketing",
-  },
-  {
-    model: "ThinkPad T14 Gen 4",
-    assetPrefix: "IT-TP-2024",
-    os: "Windows 11 Enterprise",
-    ipPrefix: "192.168.10.",
-    antivirus: "SentinelOne v23.4 (Active)",
-    location: "Tầng 1, Khu Kinh Doanh",
-  },
-];
+const SLA_TARGET_MINUTES = {
+  urgent: 120,
+  high: 240,
+  medium: 480,
+  low: 1440,
+};
 
-export function getAssetTelemetryForTicket(ticket) {
-  const codeStr = String(ticket?.ticketCode || ticket?._id || "1082");
-  let hash = 0;
-  for (let i = 0; i < codeStr.length; i += 1) {
-    hash = (hash * 31 + codeStr.charCodeAt(i)) % 1000;
-  }
-  const profile = ASSET_PROFILES[hash % ASSET_PROFILES.length];
-  const hostNum = 20 + (hash % 210);
-  const tagNum = String(10 + (hash % 89)).padStart(3, "0");
-
-  return {
-    model: profile.model,
-    assetTag: `${profile.assetPrefix}-${tagNum}`,
-    os: profile.os,
-    ip: `${profile.ipPrefix}${hostNum}`,
-    antivirus: profile.antivirus,
-    location: profile.location,
-  };
+function formatSlaDuration(ms) {
+  const totalMinutes = Math.max(1, Math.round(Math.abs(ms) / 60_000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${minutes}p` : `${minutes}p`;
 }
 
 export function getSlaDisplayForTicket(ticket) {
   if (!ticket) {
-    return { type: "normal", text: "Còn 2h 00m" };
+    return { label: "Còn 2h 0p", color: "text-brand-ink", dot: "bg-emerald-500" };
   }
   if (["resolved", "closed"].includes(ticket.status)) {
-    return { type: "met", text: "Đạt SLA" };
+    return { label: "Đạt SLA", color: "text-emerald-700", dot: "bg-emerald-500" };
   }
   if (ticket.status === "cancelled") {
-    return { type: "cancelled", text: "Đã hủy" };
+    return { label: "Đã hủy", color: "text-slate-500", dot: "bg-slate-400" };
   }
-  if (ticket.priority === "urgent") {
-    return { type: "breach-risk", text: "Còn 18m" };
+
+  const targetMinutes = SLA_TARGET_MINUTES[ticket.priority] ?? 480;
+  const createdMs = new Date(ticket.createdAt).getTime();
+  if (!Number.isFinite(createdMs)) {
+    return {
+      label: `Mục tiêu ${Math.round(targetMinutes / 60)}h`,
+      color: "text-brand-slate",
+      dot: "bg-blue-500",
+    };
   }
-  if (ticket.priority === "high") {
-    return { type: "warning", text: "Còn 45m" };
+
+  const remainingMs = createdMs + targetMinutes * 60_000 - Date.now();
+  const formatted = formatSlaDuration(remainingMs);
+
+  if (remainingMs <= 0) {
+    return {
+      label: `Quá hạn ${formatted}`,
+      color: "text-red-700",
+      dot: "bg-red-600 pulse-sla",
+    };
   }
-  if (ticket.priority === "medium") {
-    return { type: "normal", text: "Còn 2h 30m" };
+  if (remainingMs <= 30 * 60_000) {
+    return {
+      label: `Còn ${formatted}`,
+      color: "text-red-700",
+      dot: "bg-red-600 pulse-sla",
+    };
   }
-  return { type: "normal", text: "Còn 4h 15m" };
+  if (remainingMs <= 90 * 60_000) {
+    return {
+      label: `Còn ${formatted}`,
+      color: "text-amber-700",
+      dot: "bg-amber-500",
+    };
+  }
+  return {
+    label: `Còn ${formatted}`,
+    color: "text-emerald-700",
+    dot: "bg-emerald-500",
+  };
 }
 

@@ -1,4 +1,5 @@
 import { CalendarDays, Clock3, Mail, Phone, Ticket, UserRound, X } from "lucide-react";
+import { motion } from "motion/react";
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { USER_ROLE, USER_STATUS } from "../../../data/adminUsers.js";
@@ -26,8 +27,24 @@ function UserDetailDrawer({ user, onClose }) {
 
   return createPortal(
     <div className="fixed inset-0 z-[100]">
-      <button type="button" className="absolute inset-0 cursor-default bg-slate-950/45" onClick={onClose} aria-label="Đóng thông tin người dùng" />
-      <aside role="dialog" aria-modal="true" aria-labelledby={titleId} className="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col bg-white shadow-2xl">
+      <motion.button
+        type="button"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.18 }}
+        className="absolute inset-0 cursor-default bg-slate-950/45"
+        onClick={onClose}
+        aria-label="Đóng thông tin người dùng"
+      />
+      <motion.aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        initial={{ x: "100%" }}
+        animate={{ x: 0 }}
+        transition={{ type: "spring", stiffness: 360, damping: 34 }}
+        className="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col bg-white shadow-2xl"
+      >
         <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-6">
           <div><p className="text-xs font-semibold tracking-wider text-blue-700 uppercase">Chi tiết tài khoản</p><h2 id={titleId} className="mt-1 text-xl font-bold text-slate-900">Thông tin người dùng</h2></div>
           <button ref={closeRef} type="button" onClick={onClose} className="flex size-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Đóng"><X className="size-5" /></button>
@@ -57,7 +74,7 @@ function UserDetailDrawer({ user, onClose }) {
             {user.recentTickets?.length ? <ul className="divide-y divide-slate-100">{user.recentTickets.map((ticket) => <li key={ticket.code} className="px-5 py-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-bold text-blue-700">{ticket.code}</p><p className="mt-1 truncate text-sm font-semibold text-slate-800">{ticket.title}</p></div><span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{ticket.status}</span></div></li>)}</ul> : <p className="px-5 py-8 text-center text-sm text-slate-500">Người dùng chưa tạo yêu cầu nào.</p>}
           </section>
         </div>
-      </aside>
+      </motion.aside>
     </div>,
     document.body,
   );

@@ -1,17 +1,25 @@
+import { motion } from "motion/react";
+import { Badge } from "../ui/badge.jsx";
+
 function WorkspacePageHeader({ eyebrow, title, description, actions }) {
   return (
-    <header className="mb-6 bg-white rounded-2xl border border-brand-bone p-5 shadow-xs flex flex-wrap items-center justify-between gap-4">
+    <motion.header
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: "easeOut" }}
+      className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-brand-bone bg-white p-5 shadow-xs"
+    >
       <div>
-        <div className="flex items-center gap-2 mb-1">
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-brand-violet border border-purple-200 uppercase tracking-wider">
+        <div className="mb-1 flex items-center gap-2">
+          <Badge variant="violet" className="px-2 py-0.5 text-[10px] tracking-wider uppercase">
             {eyebrow}
-          </span>
+          </Badge>
           <span className="text-xs text-brand-ash">• Đồng bộ trực tiếp</span>
         </div>
-        <h1 className="font-display font-bold text-xl text-brand-onyx tracking-tight">
+        <h1 className="font-display text-xl font-bold tracking-tight text-brand-onyx">
           {title}
         </h1>
-        <p className="text-xs text-brand-slate mt-0.5 max-w-3xl">
+        <p className="mt-0.5 max-w-3xl text-xs text-brand-slate">
           {description}
         </p>
       </div>
@@ -20,7 +28,7 @@ function WorkspacePageHeader({ eyebrow, title, description, actions }) {
           {actions}
         </div>
       ) : null}
-    </header>
+    </motion.header>
   );
 }
 

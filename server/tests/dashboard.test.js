@@ -121,7 +121,30 @@ test("normalizeDashboardSummary xử lý đúng database rỗng", () => {
       minutes: null,
       hours: null,
     },
+    ratingCount: 0,
+    averageRating: null,
   });
+});
+
+test("normalizeDashboardSummary làm tròn điểm hài lòng CSAT 1 chữ số thập phân", () => {
+  assert.deepEqual(
+    normalizeDashboardSummary({}, {}, { ratingCount: 3, averageScore: 4.6667 }),
+    {
+      totalTickets: 0,
+      pendingTickets: 0,
+      processingTickets: 0,
+      completedTickets: 0,
+      urgentTickets: 0,
+      averageResolutionTime: {
+        sampleSize: 0,
+        milliseconds: null,
+        minutes: null,
+        hours: null,
+      },
+      ratingCount: 3,
+      averageRating: 4.7,
+    },
+  );
 });
 
 test("dashboard định nghĩa đúng nhóm ticket xử lý và hoàn thành", () => {

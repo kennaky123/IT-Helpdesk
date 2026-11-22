@@ -133,8 +133,10 @@ function TicketConversation({
     const idx = event.target.value;
     if (idx === "") return;
     const template = CANNED_RESPONSES[Number(idx)];
-    if (template) {
-      setContent((prev) => (prev ? `${prev}\n${template}` : template));
+    if (template?.content) {
+      setContent((prev) =>
+        prev ? `${prev}\n${template.content}` : template.content,
+      );
       setSubmitError(null);
     }
     event.target.value = "";
@@ -245,10 +247,11 @@ function TicketConversation({
               <option value="">
                 + Mẫu câu trả lời nhanh (Canned Responses)...
               </option>
-              <option value="0">Xác nhận đã tiếp nhận & đang kiểm tra</option>
-              <option value="1">Yêu cầu cung cấp TeamViewer / UltraViewer</option>
-              <option value="2">Thông báo đã reset mật khẩu / quyền AD</option>
-              <option value="3">Xác nhận hoàn tất & xin đánh giá CSAT</option>
+              {CANNED_RESPONSES.map((item, idx) => (
+                <option key={item.id} value={String(idx)}>
+                  {item.label}
+                </option>
+              ))}
             </select>
           </div>
 

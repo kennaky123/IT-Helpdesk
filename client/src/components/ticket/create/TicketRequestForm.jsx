@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, LoaderCircle, RefreshCw, Send, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -54,6 +55,7 @@ function RequiredMark() {
 }
 
 function TicketRequestForm() {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const {
     categories,
@@ -274,6 +276,8 @@ function TicketRequestForm() {
         URL.revokeObjectURL(previewUrl),
       );
       previewUrlsRef.current.clear();
+      queryClient.invalidateQueries({ queryKey: ["tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       toast.success(result.message || "Tạo yêu cầu thành công.");
       navigate(`/user/tickets/${result.ticket._id}`, { replace: true });
     } catch (error) {

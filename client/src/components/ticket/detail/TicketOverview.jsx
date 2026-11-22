@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Monitor, Sparkles } from "lucide-react";
 import { toast } from "react-toastify";
-import { getAssetTelemetryForTicket } from "../../../data/itsmData.js";
 import { formatTicketDateTime } from "../../../utils/ticketPermissions.js";
 import { getAssets, launchRemoteDesktop } from "../../../services/assetService.js";
 import RemoteConnectModal from "../../assets/RemoteConnectModal.jsx";
+import { Button } from "../../ui/button.jsx";
 
 function getInitials(name = "") {
   const parts = String(name).trim().split(/\s+/).filter(Boolean);
@@ -14,47 +15,26 @@ function getInitials(name = "") {
 }
 
 function TicketMetadataCard({ ticket }) {
-  const fallbackAsset = getAssetTelemetryForTicket(ticket);
-  const [realAsset, setRealAsset] = useState(null);
+  const queryClient = useQueryClient();
   const [isRemoteModalOpen, setIsRemoteModalOpen] = useState(false);
+  const creatorId = ticket.createdBy?._id;
 
-  useEffect(() => {
-    const creatorId = ticket.createdBy?._id;
-    if (!creatorId) return;
+  const { data: assetData, isLoading: isAssetLoading } = useQuery({
+    queryKey: ["assets", "byUser", creatorId],
+    queryFn: ({ signal }) => getAssets({ assignedTo: creatorId }, { signal }),
+    enabled: Boolean(creatorId),
+  });
 
-    const controller = new AbortController();
-    getAssets({ assignedTo: creatorId }, { signal: controller.signal })
-      .then((data) => {
-        if (data?.assets?.length > 0) {
-          setRealAsset(data.assets[0]);
-        }
-      })
-      .catch(() => {});
-
-    return () => controller.abort();
-  }, [ticket.createdBy?._id]);
-
-  const asset = realAsset
-    ? {
-        model: realAsset.name,
-        tag: realAsset.assetTag,
-        os: realAsset.os || fallbackAsset.os,
-        ip: fallbackAsset.ip,
-        specs: realAsset.specs,
-        status: "Đang Cấp Phát (Chính Chủ)",
-        remoteTool: realAsset.remoteTool,
-        remoteId: realAsset.remoteId,
-        raw: realAsset,
-      }
-    : fallbackAsset;
+  const realAsset = assetData?.assets?.[0] ?? null;
 
   const requesterName = ticket.createdBy?.fullName ?? "Không xác định";
   const requesterDept =
-    ticket.createdBy?.department || "Khối Vận Hành Doanh Nghiệp";
-  const requesterEmail = ticket.createdBy?.email || "user@company.vn";
+    ticket.createdBy?.department || "Chưa cập nhật phòng ban";
+  const requesterEmail = ticket.createdBy?.email || "Chưa cập nhật";
 
   async function handleRemoteClick() {
-    if (realAsset?.remoteId) {
+    if (!realAsset) return;
+    if (realAsset.remoteId) {
       try {
         const { appName, id } = await launchRemoteDesktop(
           realAsset.remoteTool,
@@ -66,12 +46,8 @@ function TicketMetadataCard({ ticket }) {
       } catch (err) {
         toast.error(err.message || "Không thể mở ứng dụng điều khiển từ xa.");
       }
-    } else if (realAsset) {
-      setIsRemoteModalOpen(true);
     } else {
-      toast.info(
-        `Đang khởi tạo phiên Remote Desktop tới ${asset.tag} (${asset.ip})...`,
-      );
+      setIsRemoteModalOpen(true);
     }
   }
 
@@ -137,118 +113,102 @@ function TicketMetadataCard({ ticket }) {
         </div>
       </section>
 
-      {/* Section: Asset / Device Telemetry (From DeskPro IT View 2) */}
+      {/* Section: Asset CMDB */}
       <section className="p-5">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[11px] font-bold tracking-wider text-brand-slate uppercase">
             Thiết Bị Cấp Phát (Asset)
           </h3>
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-emerald">
-            <span className="h-1.5 w-1.5 rounded-full bg-brand-emerald" />
-            Online
-          </span>
+          {realAsset ? (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-emerald">
+              <span className="h-1.5 w-1.5 rounded-full bg-brand-emerald" />
+              Đã ghi nhận
+            </span>
+          ) : null}
         </div>
 
-        <div className="space-y-2.5 rounded-xl border border-brand-bone bg-brand-mist/60 p-3.5 text-xs">
-          <div className="flex justify-between gap-2">
-            <span className="text-brand-slate">Thiết bị:</span>
-            <span className="text-right font-semibold text-brand-ink">
-              {asset.model}
-            </span>
+        {isAssetLoading ? (
+          <div className="rounded-xl border border-brand-bone bg-brand-mist/60 p-3.5 text-xs text-brand-slate">
+            Đang tra cứu thiết bị từ CMDB...
           </div>
-          <div className="flex justify-between gap-2">
-            <span className="text-brand-slate">Asset Tag:</span>
-            <span className="rounded border border-brand-bone bg-white px-1.5 py-0.5 font-mono font-bold text-brand-violet">
-              {asset.tag}
-            </span>
-          </div>
-          <div className="flex justify-between gap-2">
-            <span className="text-brand-slate">Hệ điều hành:</span>
-            <span className="text-right font-medium text-brand-ink">
-              {asset.os}
-            </span>
-          </div>
-          {asset.specs && (
-            <div className="flex justify-between gap-2">
-              <span className="text-brand-slate">Cấu hình:</span>
-              <span className="text-right font-medium text-brand-slate truncate max-w-[180px]">
-                {asset.specs}
-              </span>
+        ) : realAsset ? (
+          <>
+            <div className="space-y-2.5 rounded-xl border border-brand-bone bg-brand-mist/60 p-3.5 text-xs">
+              <div className="flex justify-between gap-2">
+                <span className="text-brand-slate">Thiết bị:</span>
+                <span className="text-right font-semibold text-brand-ink">
+                  {realAsset.name}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span className="text-brand-slate">Asset Tag:</span>
+                <span className="rounded border border-brand-bone bg-white px-1.5 py-0.5 font-mono font-bold text-brand-violet">
+                  {realAsset.assetTag}
+                </span>
+              </div>
+              {realAsset.os ? (
+                <div className="flex justify-between gap-2">
+                  <span className="text-brand-slate">Hệ điều hành:</span>
+                  <span className="text-right font-medium text-brand-ink">
+                    {realAsset.os}
+                  </span>
+                </div>
+              ) : null}
+              {realAsset.specs ? (
+                <div className="flex justify-between gap-2">
+                  <span className="text-brand-slate">Cấu hình:</span>
+                  <span className="max-w-[180px] truncate text-right font-medium text-brand-slate">
+                    {realAsset.specs}
+                  </span>
+                </div>
+              ) : null}
+              {realAsset.remoteId ? (
+                <div className="flex justify-between gap-2">
+                  <span className="text-brand-slate">
+                    Remote ID ({realAsset.remoteTool}):
+                  </span>
+                  <span className="font-mono font-bold text-brand-violet">
+                    {realAsset.remoteId}
+                  </span>
+                </div>
+              ) : null}
+              <div className="flex justify-between gap-2 border-t border-brand-bone pt-2">
+                <span className="text-brand-slate">Trạng thái:</span>
+                <span className="font-semibold text-brand-emerald">
+                  Đang Cấp Phát (Chính Chủ)
+                </span>
+              </div>
             </div>
-          )}
-          {asset.remoteId && (
-            <div className="flex justify-between gap-2">
-              <span className="text-brand-slate">Remote ID ({asset.remoteTool}):</span>
-              <span className="font-mono font-bold text-brand-violet">
-                {asset.remoteId}
-              </span>
+
+            <div className="mt-3 flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleRemoteClick}
+                className="flex-1 border-brand-violet/30 bg-purple-50/60 text-brand-violet hover:bg-purple-100"
+              >
+                <Monitor className="h-3.5 w-3.5" />
+                {realAsset.remoteId ? "Remote Support" : "Cấu hình Remote ID"}
+              </Button>
             </div>
-          )}
-          <div className="flex justify-between gap-2 border-t border-brand-bone pt-2">
-            <span className="text-brand-slate">Trạng thái:</span>
-            <span className="font-semibold text-brand-emerald">
-              {asset.status}
-            </span>
+          </>
+        ) : (
+          <div className="rounded-xl border border-dashed border-brand-bone bg-brand-mist/40 p-3.5 text-xs text-brand-slate">
+            Người dùng này chưa được gán thiết bị nào trong kho tài sản CMDB.
           </div>
-        </div>
+        )}
 
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={handleRemoteClick}
-            className="flex items-center justify-center gap-1.5 rounded-lg border border-brand-violet/30 bg-purple-50/60 px-2.5 py-1.5 text-xs font-bold text-brand-violet transition-colors hover:bg-purple-100"
-          >
-            <svg
-              className="h-3.5 w-3.5 text-brand-violet"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-              />
-            </svg>
-            Remote Support
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              toast.success(
-                `Ping ${asset.ip} (${asset.tag}): 64 bytes — time=1.8ms TTL=64 (0% packet loss)`,
-              )
-            }
-            className="flex items-center justify-center gap-1.5 rounded-lg border border-brand-bone bg-white px-2.5 py-1.5 text-xs font-semibold text-brand-ink transition-colors hover:bg-brand-mist"
-          >
-            <svg
-              className="h-3.5 w-3.5 text-brand-blue"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
-            </svg>
-            Ping Thiết Bị
-          </button>
-        </div>
-
-        {isRemoteModalOpen && realAsset && (
+        {isRemoteModalOpen && realAsset ? (
           <RemoteConnectModal
             asset={realAsset}
             onClose={() => setIsRemoteModalOpen(false)}
-            onUpdated={(updated) => {
-              setRealAsset(updated);
+            onUpdated={() => {
+              queryClient.invalidateQueries({ queryKey: ["assets"] });
               setIsRemoteModalOpen(false);
             }}
           />
-        )}
+        ) : null}
       </section>
     </div>
   );

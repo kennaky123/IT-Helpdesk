@@ -20,7 +20,7 @@ function TechnicianPerformanceList({ technicians }) {
           id="technician-performance-title"
           className="font-display text-sm font-bold text-brand-ink"
         >
-          Hiệu Suất Đội Ngũ Kỹ Thuật (dim_agent)
+          Hiệu Suất Đội Ngũ Kỹ Thuật
         </h2>
         <p className="mt-0.5 text-xs text-brand-slate">
           So sánh khối lượng đang xử lý và đã hoàn tất SLA

@@ -3,15 +3,38 @@ import { useRef } from "react";
 import useClickOutside from "../../../hooks/useClickOutside.js";
 import { USER_ROLE, USER_STATUS } from "../../../data/adminUsers.js";
 import { formatUserDate, getInitials } from "../../../utils/adminUserFormatters.js";
+import { Badge } from "../../ui/badge.jsx";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../../ui/table.jsx";
 
 function StatusBadge({ status }) {
   const config = USER_STATUS[status] ?? USER_STATUS.unverified;
-  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${config.classes}`}>{config.label}</span>;
+  return (
+    <Badge
+      variant={status === "active" ? "emerald" : status === "locked" ? "destructive" : "amber"}
+      className={config.classes}
+    >
+      {config.label}
+    </Badge>
+  );
 }
 
 function RoleBadge({ role }) {
   const config = USER_ROLE[role] ?? USER_ROLE.user;
-  return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${config.classes}`}>{config.label}</span>;
+  return (
+    <Badge
+      variant={role === "admin" ? "blue" : role === "technician" ? "violet" : "secondary"}
+      className={`rounded-md ${config.classes}`}
+    >
+      {config.label}
+    </Badge>
+  );
 }
 
 function UserIdentity({ user }) {
@@ -110,25 +133,67 @@ function UsersTable({ users, total, page, pageSize, selectedIds, openMenuId, onS
             ))}
           </ul>
 
-          <div className="hidden overflow-x-auto lg:block">
-            <table className="w-full min-w-[72rem] text-left">
-              <thead className="bg-slate-50 text-xs font-semibold tracking-wide text-slate-500 uppercase"><tr>
-                <th className="w-14 px-5 py-3"><input type="checkbox" checked={allSelected} onChange={(event) => onSelectPage(event.target.checked)} className="size-4 rounded border-slate-300 accent-blue-600" aria-label="Chọn tất cả người dùng trên trang" /></th>
-                <th className="px-3 py-3">Người dùng</th><th className="px-3 py-3">Số điện thoại</th><th className="px-3 py-3">Vai trò</th><th className="px-3 py-3 text-center">Số yêu cầu</th><th className="px-3 py-3">Trạng thái</th><th className="px-3 py-3">Ngày tạo</th><th className="px-5 py-3 text-right">Thao tác</th>
-              </tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {users.map((user) => <tr key={user.id} className="transition hover:bg-blue-50/40">
-                  <td className="px-5 py-4"><input type="checkbox" checked={selectedIds.has(user.id)} onChange={() => onSelect(user.id)} className="size-4 rounded border-slate-300 accent-blue-600" aria-label={`Chọn ${user.fullName}`} /></td>
-                  <td className="max-w-64 px-3 py-4"><UserIdentity user={user} /></td>
-                  <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-600">{user.phone}</td>
-                  <td className="px-3 py-4"><RoleBadge role={user.role} /></td>
-                  <td className="px-3 py-4 text-center text-sm font-semibold text-slate-800">{user.ticketCount}</td>
-                  <td className="px-3 py-4"><StatusBadge status={user.status} /></td>
-                  <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-600"><time dateTime={user.createdAt}>{formatUserDate(user.createdAt)}</time></td>
-                  <td className="px-5 py-4 text-right"><UserActionMenu {...menuProps(user)} /></td>
-                </tr>)}
-              </tbody>
-            </table>
+          <div className="hidden lg:block">
+            <Table className="min-w-[72rem]">
+              <TableHeader className="bg-slate-50 text-xs text-slate-500">
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-14 px-5 py-3">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={(event) => onSelectPage(event.target.checked)}
+                      className="size-4 rounded border-slate-300 accent-blue-600"
+                      aria-label="Chọn tất cả người dùng trên trang"
+                    />
+                  </TableHead>
+                  <TableHead className="px-3 py-3">Người dùng</TableHead>
+                  <TableHead className="px-3 py-3">Số điện thoại</TableHead>
+                  <TableHead className="px-3 py-3">Vai trò</TableHead>
+                  <TableHead className="px-3 py-3 text-center">Số yêu cầu</TableHead>
+                  <TableHead className="px-3 py-3">Trạng thái</TableHead>
+                  <TableHead className="px-3 py-3">Ngày tạo</TableHead>
+                  <TableHead className="px-5 py-3 text-right">Thao tác</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className="divide-y divide-slate-100">
+                {users.map((user) => (
+                  <TableRow key={user.id} className="hover:bg-blue-50/40">
+                    <TableCell className="px-5 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(user.id)}
+                        onChange={() => onSelect(user.id)}
+                        className="size-4 rounded border-slate-300 accent-blue-600"
+                        aria-label={`Chọn ${user.fullName}`}
+                      />
+                    </TableCell>
+                    <TableCell className="max-w-64 px-3 py-4">
+                      <UserIdentity user={user} />
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap px-3 py-4 text-sm text-slate-600">
+                      {user.phone || "—"}
+                    </TableCell>
+                    <TableCell className="px-3 py-4">
+                      <RoleBadge role={user.role} />
+                    </TableCell>
+                    <TableCell className="px-3 py-4 text-center text-sm font-semibold text-slate-800">
+                      {user.ticketCount}
+                    </TableCell>
+                    <TableCell className="px-3 py-4">
+                      <StatusBadge status={user.status} />
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap px-3 py-4 text-sm text-slate-600">
+                      <time dateTime={user.createdAt}>
+                        {formatUserDate(user.createdAt)}
+                      </time>
+                    </TableCell>
+                    <TableCell className="px-5 py-4 text-right">
+                      <UserActionMenu {...menuProps(user)} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         </>
       )}

@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
@@ -11,13 +12,13 @@ import {
 import { toast } from "react-toastify";
 import ConfirmActionModal from "../../components/common/ConfirmActionModal.jsx";
 import WorkspacePageHeader from "../../components/common/WorkspacePageHeader.jsx";
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.jsx";
 import UsbAgentConnectionBanner from "../../components/usb/UsbAgentConnectionBanner.jsx";
 import UsbDevicesTable from "../../components/usb/UsbDevicesTable.jsx";
 import UsbEventsTable from "../../components/usb/UsbEventsTable.jsx";
 import UsbPolicyModal from "../../components/usb/UsbPolicyModal.jsx";
 import UsbStatsGrid from "../../components/usb/UsbStatsGrid.jsx";
 import useAuth from "../../hooks/useAuth.js";
-import { REALTIME_DATA_EVENT } from "../../hooks/useRealtimeUpdates.js";
 import {
   deleteUsbDevice,
   getAgentDownloadUrl,
@@ -41,15 +42,11 @@ const TYPE_OPTIONS = [
 ];
 
 function UsbSecurityPage() {
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const role = user?.role || "admin";
 
   const [activeTab, setActiveTab] = useState("devices"); // "devices" | "events"
-  const [devices, setDevices] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [summary, setSummary] = useState({});
-  const [networkInfo, setNetworkInfo] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSimulating, setIsSimulating] = useState(false);
 
   // Filters
@@ -57,72 +54,53 @@ function UsbSecurityPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [deviceTypeFilter, setDeviceTypeFilter] = useState("");
   const [connectionStateFilter, setConnectionStateFilter] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
 
   // Modals
   const [policyTarget, setPolicyTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const refreshData = useCallback(() => {
-    setReloadKey((prev) => prev + 1);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-
-    getUsbDashboard(
+  const usbQuery = useQuery({
+    queryKey: [
+      "usb",
+      "dashboard",
       {
-        search: search.trim() || undefined,
-        status: statusFilter || undefined,
-        deviceType: deviceTypeFilter || undefined,
-        connectionState: connectionStateFilter || undefined,
+        search,
+        status: statusFilter,
+        deviceType: deviceTypeFilter,
+        connectionState: connectionStateFilter,
       },
-      { signal: controller.signal },
-    )
-      .then((res) => {
-        if (!cancelled) {
-          setDevices(res.devices || []);
-          setEvents(res.events || []);
-          setSummary(res.summary || {});
-          setNetworkInfo(res.networkInfo || null);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled && error.code !== "ERR_CANCELED") {
-          toast.error(
-            error.message || "Không thể tải dữ liệu giám sát thiết bị USB.",
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      });
+    ],
+    queryFn: ({ signal }) =>
+      getUsbDashboard(
+        {
+          search: search.trim() || undefined,
+          status: statusFilter || undefined,
+          deviceType: deviceTypeFilter || undefined,
+          connectionState: connectionStateFilter || undefined,
+        },
+        { signal },
+      ),
+  });
 
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [search, statusFilter, deviceTypeFilter, connectionStateFilter, reloadKey]);
-
-  // Listen to Realtime USB events
   useEffect(() => {
-    function handleRealtime(event) {
-      const detail = event.detail;
-      if (
-        !detail?.resource ||
-        detail.resource === "usb" ||
-        detail.resource === "system"
-      ) {
-        refreshData();
-      }
+    if (usbQuery.error) {
+      toast.error(
+        usbQuery.error.message ||
+          "Không thể tải dữ liệu giám sát thiết bị USB.",
+      );
     }
-    window.addEventListener(REALTIME_DATA_EVENT, handleRealtime);
-    return () => window.removeEventListener(REALTIME_DATA_EVENT, handleRealtime);
-  }, [refreshData]);
+  }, [usbQuery.error]);
+
+  const devices = usbQuery.data?.devices || [];
+  const events = usbQuery.data?.events || [];
+  const summary = usbQuery.data?.summary || {};
+  const networkInfo = usbQuery.data?.networkInfo || null;
+  const isLoading = usbQuery.isLoading || usbQuery.isFetching;
+
+  const refreshData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["usb"] });
+  }, [queryClient]);
 
   async function handleQuickApprove(device) {
     try {
@@ -277,32 +255,18 @@ function UsbSecurityPage() {
       {/* Tabs & Filter Controls */}
       <div className="bg-white rounded-2xl border border-brand-bone p-4 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-brand-bone pb-3">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveTab("devices")}
-              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
-                activeTab === "devices"
-                  ? "bg-brand-violet text-white shadow-xs"
-                  : "text-brand-slate hover:bg-brand-mist"
-              }`}
-            >
-              <Usb className="w-3.5 h-3.5" />
-              <span>Danh Sách Thiết Bị USB ({devices.length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("events")}
-              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
-                activeTab === "events"
-                  ? "bg-brand-violet text-white shadow-xs"
-                  : "text-brand-slate hover:bg-brand-mist"
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5" />
-              <span>Nhật Ký Cắm / Rút Realtime ({events.length})</span>
-            </button>
-          </div>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList>
+              <TabsTrigger value="devices">
+                <Usb className="w-3.5 h-3.5" />
+                <span>Danh Sách Thiết Bị USB ({devices.length})</span>
+              </TabsTrigger>
+              <TabsTrigger value="events">
+                <Activity className="w-3.5 h-3.5" />
+                <span>Nhật Ký Cắm / Rút Realtime ({events.length})</span>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
 
           {summary.unverifiedCount > 0 && (
             <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold">

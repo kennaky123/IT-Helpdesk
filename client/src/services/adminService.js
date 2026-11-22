@@ -6,22 +6,60 @@ function invalid(message) {
   return error;
 }
 
-export async function getAdminUsers({ signal } = {}) {
-  const users = (await axiosClient.get("/admin/users", { signal })).data?.data?.users;
-  if (!Array.isArray(users)) throw invalid("Phản hồi danh sách người dùng không hợp lệ.");
-  return users.map((user) => ({
+function mapAdminUser(user) {
+  return {
     id: user._id,
     fullName: user.fullName,
     email: user.email,
     phone: user.phone ?? "",
-    department: user.department ?? "Chưa cập nhật",
+    department: user.department ?? "",
     role: user.role,
     status: user.status === "active" ? "active" : "locked",
     ticketCount: Number(user.ticketCount ?? 0),
     createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt,
-    recentTickets: [],
-  }));
+    recentTickets: Array.isArray(user.recentTickets) ? user.recentTickets : [],
+  };
+}
+
+function toAdminUserPayload(values) {
+  return {
+    fullName: values.fullName,
+    email: values.email,
+    phone: values.phone ?? "",
+    department: values.department ?? "",
+    role: values.role,
+    status: values.status === "locked" ? "inactive" : values.status,
+    ...(values.password ? { password: values.password } : {}),
+  };
+}
+
+export async function getAdminUsers({ signal } = {}) {
+  const users = (await axiosClient.get("/admin/users", { signal })).data?.data?.users;
+  if (!Array.isArray(users)) throw invalid("Phản hồi danh sách người dùng không hợp lệ.");
+  return users.map(mapAdminUser);
+}
+
+export async function createAdminUser(values) {
+  const response = await axiosClient.post("/admin/users", toAdminUserPayload(values));
+  return mapAdminUser(response.data?.data?.user);
+}
+
+export async function updateAdminUser(id, values) {
+  const response = await axiosClient.patch(`/admin/users/${id}`, toAdminUserPayload(values));
+  return mapAdminUser(response.data?.data?.user);
+}
+
+export async function updateAdminUserStatus(id, status) {
+  const normalizedStatus = status === "locked" ? "inactive" : status;
+  const response = await axiosClient.patch(`/admin/users/${id}/status`, {
+    status: normalizedStatus,
+  });
+  return mapAdminUser(response.data?.data?.user);
+}
+
+export async function deleteAdminUser(id) {
+  await axiosClient.delete(`/admin/users/${id}`);
 }
 
 export async function getAdminCategories({ signal } = {}) {
@@ -117,5 +155,9 @@ export async function deleteAdminCategory(id) {
 
 export function getAdminErrorMessage(error) {
   if (!error?.response) return "Không thể kết nối đến máy chủ. Vui lòng thử lại.";
+  const details = error.response.data?.details;
+  if (Array.isArray(details) && details.length > 0) {
+    return `${error.response.data?.message ?? "Dữ liệu không hợp lệ."} (${details[0]})`;
+  }
   return error.response.data?.message ?? "Không thể tải dữ liệu quản trị.";
 }

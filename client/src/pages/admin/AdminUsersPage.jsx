@@ -1,3 +1,4 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
@@ -9,16 +10,21 @@ import UserStatsGrid from "../../components/admin/users/UserStatsGrid.jsx";
 import UsersTable from "../../components/admin/users/UsersTable.jsx";
 import ConfirmActionModal from "../../components/common/ConfirmActionModal.jsx";
 import WorkspacePageHeader from "../../components/common/WorkspacePageHeader.jsx";
+import { Button } from "../../components/ui/button.jsx";
 import {
+  createAdminUser,
+  deleteAdminUser,
   getAdminErrorMessage,
   getAdminUsers,
+  updateAdminUser,
+  updateAdminUserStatus,
 } from "../../services/adminService.js";
 import { normalizeSearch } from "../../utils/adminUserFormatters.js";
 
 const EMPTY_FILTERS = { search: "", status: "", role: "" };
 
 function AdminUsersPage() {
-  const [users, setUsers] = useState([]);
+  const queryClient = useQueryClient();
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
@@ -28,19 +34,85 @@ function AdminUsersPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [detailUser, setDetailUser] = useState(null);
   const [deleteUser, setDeleteUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [deleteError, setDeleteError] = useState(null);
+
+  const {
+    data: users = [],
+    isLoading,
+    error: listError,
+  } = useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: ({ signal }) => getAdminUsers({ signal }),
+  });
 
   useEffect(() => {
-    const controller = new AbortController();
-    getAdminUsers({ signal: controller.signal })
-      .then(setUsers)
-      .catch((error) => {
-        if (error.code !== "ERR_CANCELED")
-          toast.error(getAdminErrorMessage(error));
-      })
-      .finally(() => setIsLoading(false));
-    return () => controller.abort();
-  }, []);
+    if (listError) {
+      toast.error(getAdminErrorMessage(listError));
+    }
+  }, [listError]);
+
+  function invalidateUsers() {
+    queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+    queryClient.invalidateQueries({ queryKey: ["technicians"] });
+    queryClient.invalidateQueries({ queryKey: ["tickets", "filter-options"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: ({ id, values }) =>
+      id ? updateAdminUser(id, values) : createAdminUser(values),
+    onSuccess: (_saved, variables) => {
+      invalidateUsers();
+      if (!variables.id) setPage(1);
+      setFormOpen(false);
+      toast.success(
+        variables.id
+          ? "Đã cập nhật thông tin người dùng."
+          : "Đã thêm người dùng mới.",
+      );
+    },
+    onError: (error) => {
+      toast.error(getAdminErrorMessage(error));
+    },
+  });
+
+  const toggleStatusMutation = useMutation({
+    mutationFn: ({ id, nextStatus }) => updateAdminUserStatus(id, nextStatus),
+    onSuccess: (_saved, variables) => {
+      invalidateUsers();
+      setOpenMenuId(null);
+      toast.success(
+        variables.nextStatus === "locked"
+          ? "Đã khóa tài khoản."
+          : "Đã mở khóa tài khoản.",
+      );
+    },
+    onError: (error) => {
+      toast.error(getAdminErrorMessage(error));
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => deleteAdminUser(id),
+    onSuccess: (_res, deletedId) => {
+      invalidateUsers();
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        next.delete(deletedId);
+        return next;
+      });
+      if (detailUser?.id === deletedId) setDetailUser(null);
+      setDeleteUser(null);
+      setDeleteError(null);
+      toast.success("Đã xóa tài khoản khỏi hệ thống.");
+    },
+    onError: (error) => {
+      setDeleteError({
+        message: getAdminErrorMessage(error),
+        details: error.response?.data?.details ?? [],
+      });
+    },
+  });
 
   const filteredUsers = useMemo(() => {
     const keyword = normalizeSearch(filters.search);
@@ -89,88 +161,38 @@ function AdminUsersPage() {
   }
 
   function saveUser(values) {
-    if (formUser) {
-      setUsers((current) =>
-        current.map((item) =>
-          item.id === formUser.id
-            ? {
-                ...item,
-                ...values,
-                password: undefined,
-                confirmPassword: undefined,
-              }
-            : item,
-        ),
-      );
-      toast.success("Đã cập nhật thông tin người dùng.");
-    } else {
-      const newUser = {
-        id: `USR-${String(Date.now()).slice(-6)}`,
-        fullName: values.fullName,
-        email: values.email,
-        phone: values.phone,
-        role: values.role,
-        status: values.status,
-        ticketCount: 0,
-        createdAt: new Date().toISOString(),
-        lastLoginAt: null,
-        department: "Chưa cập nhật",
-        recentTickets: [],
-      };
-      setUsers((current) => [newUser, ...current]);
-      setPage(1);
-      toast.success("Đã thêm người dùng mới.");
-    }
-    setFormOpen(false);
+    return saveMutation.mutateAsync({ id: formUser?.id, values });
   }
 
   function toggleLock(user) {
     const nextStatus = user.status === "locked" ? "active" : "locked";
-    setUsers((current) =>
-      current.map((item) =>
-        item.id === user.id ? { ...item, status: nextStatus } : item,
-      ),
-    );
-    setOpenMenuId(null);
-    toast.success(
-      nextStatus === "locked"
-        ? "Đã khóa tài khoản."
-        : "Đã mở khóa tài khoản.",
-    );
+    toggleStatusMutation.mutate({ id: user.id, nextStatus });
   }
 
   function confirmDelete() {
-    setUsers((current) =>
-      current.filter((user) => user.id !== deleteUser.id),
-    );
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      next.delete(deleteUser.id);
-      return next;
-    });
-    if (detailUser?.id === deleteUser.id) setDetailUser(null);
-    setDeleteUser(null);
-    toast.success("Đã xóa tài khoản khỏi danh sách.");
+    if (!deleteUser) return;
+    setDeleteError(null);
+    deleteMutation.mutate(deleteUser.id);
   }
 
   return (
     <section aria-labelledby="admin-users-title">
       <WorkspacePageHeader
-        eyebrow="Quản trị danh mục nhân sự (dim_user_department)"
+        eyebrow="Quản trị nhân sự & phân quyền"
         title="Quản lý người dùng"
-        description="Quản lý tài khoản nhân viên, trạng thái truy cập AD và lịch sử gửi yêu cầu hỗ trợ."
+        description="Quản lý tài khoản nhân viên, kỹ thuật viên, trạng thái truy cập và lịch sử gửi yêu cầu hỗ trợ."
         actions={
-          <button
+          <Button
             type="button"
+            size="pill"
             onClick={() => {
               setFormUser(undefined);
               setFormOpen(true);
             }}
-            className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full bg-brand-ink px-4 text-xs font-semibold text-white shadow-xs transition hover:bg-brand-carbon"
           >
             <Plus className="size-4" aria-hidden="true" />
             Thêm người dùng
-          </button>
+          </Button>
         }
       />
 
@@ -261,10 +283,14 @@ function AdminUsersPage() {
       {deleteUser ? (
         <ConfirmActionModal
           title="Xóa tài khoản người dùng?"
-          description={`Tài khoản ${deleteUser.fullName} sẽ bị xóa khỏi danh sách hiển thị.`}
+          description={`Tài khoản ${deleteUser.fullName} sẽ bị xóa vĩnh viễn khỏi hệ thống.`}
           confirmLabel="Xóa tài khoản"
-          submitting={false}
-          onCancel={() => setDeleteUser(null)}
+          submitting={deleteMutation.isPending}
+          error={deleteError}
+          onCancel={() => {
+            setDeleteUser(null);
+            setDeleteError(null);
+          }}
           onConfirm={confirmDelete}
         />
       ) : null}

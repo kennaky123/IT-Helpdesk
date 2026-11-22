@@ -1,12 +1,17 @@
 import { Columns3, Menu, Plus, Search } from "lucide-react";
+import { motion } from "motion/react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { getNavigationForRole } from "../../constants/navigation.js";
 import { getDefaultPathForRole } from "../../constants/roles.js";
 import useAuth from "../../hooks/useAuth.js";
+import { useUiStore } from "../../stores/useUiStore.js";
 import NotificationButton from "./NotificationButton.jsx";
 import UserDropdown from "./UserDropdown.jsx";
 
-function Header({ mobileMenuOpen, onOpenMobileMenu, onOpenCommandMenu }) {
+function Header() {
+  const mobileMenuOpen = useUiStore((state) => state.mobileMenuOpen);
+  const openMobileMenu = useUiStore((state) => state.openMobileMenu);
+  const openCommandMenu = useUiStore((state) => state.openCommandMenu);
   const { user } = useAuth();
   const location = useLocation();
   const homePath = getDefaultPathForRole(user?.role);
@@ -32,7 +37,7 @@ function Header({ mobileMenuOpen, onOpenMobileMenu, onOpenCommandMenu }) {
       <div className="flex items-center gap-4 min-w-0">
         <button
           type="button"
-          onClick={onOpenMobileMenu}
+          onClick={openMobileMenu}
           className="flex size-9 shrink-0 items-center justify-center rounded-lg text-brand-slate transition hover:bg-brand-mist hover:text-brand-ink lg:hidden"
           aria-label="Mở menu điều hướng"
           aria-controls="mobile-sidebar"
@@ -73,27 +78,38 @@ function Header({ mobileMenuOpen, onOpenMobileMenu, onOpenCommandMenu }) {
                 end={item.end}
                 className={({ isActive }) =>
                   [
-                    "px-3 py-1.5 rounded-full transition-all flex items-center gap-1.5 whitespace-nowrap",
+                    "relative px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5 whitespace-nowrap",
                     isActive
-                      ? "bg-white text-brand-ink font-semibold shadow-xs"
+                      ? "text-brand-ink font-semibold"
                       : "text-brand-slate hover:text-brand-ink",
                   ].join(" ")
                 }
               >
                 {({ isActive }) => (
                   <>
+                    {isActive ? (
+                      <motion.span
+                        layoutId="header-active-nav"
+                        className="absolute inset-0 rounded-full bg-white shadow-xs"
+                        transition={{
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 32,
+                        }}
+                      />
+                    ) : null}
                     <Icon
-                      className={`w-3.5 h-3.5 shrink-0 ${
+                      className={`relative z-10 w-3.5 h-3.5 shrink-0 ${
                         isActive
                           ? item.iconColor || "text-brand-violet"
                           : "text-brand-slate"
                       }`}
                       aria-hidden="true"
                     />
-                    <span>{item.label}</span>
+                    <span className="relative z-10">{item.label}</span>
                     {item.alertDot ? (
                       <span
-                        className="w-2 h-2 rounded-full bg-red-500 animate-ping"
+                        className="relative z-10 w-2 h-2 rounded-full bg-red-500 animate-ping"
                         title="1 node cảnh báo"
                       />
                     ) : null}
@@ -116,7 +132,7 @@ function Header({ mobileMenuOpen, onOpenMobileMenu, onOpenCommandMenu }) {
       <div className="hidden xl:flex items-center">
         <button
           type="button"
-          onClick={onOpenCommandMenu}
+          onClick={openCommandMenu}
           className="flex items-center gap-2.5 px-3.5 py-1.5 bg-brand-mist hover:bg-brand-bone/60 border border-brand-bone rounded-full text-xs text-brand-slate transition-all w-64 2xl:w-72"
         >
           <Search className="w-3.5 h-3.5 text-brand-ash shrink-0" />
@@ -133,7 +149,7 @@ function Header({ mobileMenuOpen, onOpenMobileMenu, onOpenCommandMenu }) {
       <div className="flex items-center gap-2.5 shrink-0">
         <button
           type="button"
-          onClick={onOpenCommandMenu}
+          onClick={openCommandMenu}
           className="flex xl:hidden size-8 items-center justify-center rounded-full bg-brand-mist border border-brand-bone text-brand-slate hover:text-brand-ink"
           aria-label="Tìm kiếm nhanh"
         >

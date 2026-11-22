@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useRef } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import CommandMenuModal from "../components/layout/CommandMenuModal.jsx";
@@ -9,6 +10,7 @@ import useAuth from "../hooks/useAuth.js";
 import useRealtimeUpdates, {
   REALTIME_DATA_EVENT,
 } from "../hooks/useRealtimeUpdates.js";
+import { useUiStore } from "../stores/useUiStore.js";
 
 const SPECIAL_PAGE_TITLES = {
   "/profile": "Hồ sơ cá nhân",
@@ -51,16 +53,14 @@ function isFullBleedWorkspace(pathname) {
 
 function AppLayout() {
   useRealtimeUpdates();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [commandMenuOpen, setCommandMenuOpen] = useState(false);
+  const mobileMenuOpen = useUiStore((state) => state.mobileMenuOpen);
+  const commandMenuOpen = useUiStore((state) => state.commandMenuOpen);
+  const closeMobileMenu = useUiStore((state) => state.closeMobileMenu);
+  const closeCommandMenu = useUiStore((state) => state.closeCommandMenu);
+  const toggleCommandMenu = useUiStore((state) => state.toggleCommandMenu);
   const { pathname } = useLocation();
   const { user } = useAuth();
   const mainContentRef = useRef(null);
-
-  const openMobileMenu = useCallback(() => setMobileMenuOpen(true), []);
-  const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
-  const openCommandMenu = useCallback(() => setCommandMenuOpen(true), []);
-  const closeCommandMenu = useCallback(() => setCommandMenuOpen(false), []);
 
   useEffect(() => {
     const navigationItem = getNavigationItemByPath(user?.role, pathname);
@@ -77,14 +77,14 @@ function AppLayout() {
     function handleKeyDown(event) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setCommandMenuOpen((prev) => !prev);
+        toggleCommandMenu();
       } else if (event.key === "Escape") {
-        setCommandMenuOpen(false);
+        closeCommandMenu();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [closeCommandMenu, toggleCommandMenu]);
 
   useEffect(() => {
     if (user?.role !== "admin" && user?.role !== "technician") {
@@ -142,11 +142,7 @@ function AppLayout() {
       <CommandMenuModal open={commandMenuOpen} onClose={closeCommandMenu} />
 
       <div className="flex-1 flex flex-col min-w-0" data-app-shell-content>
-        <Header
-          mobileMenuOpen={mobileMenuOpen}
-          onOpenMobileMenu={openMobileMenu}
-          onOpenCommandMenu={openCommandMenu}
-        />
+        <Header />
         <main
           ref={mainContentRef}
           id="main-content"
@@ -157,13 +153,22 @@ function AppLayout() {
               : "flex-1 min-h-[calc(100vh-3.5rem)] p-4 outline-none sm:p-6"
           }
         >
-          {fullBleed ? (
-            <Outlet />
-          ) : (
-            <div className="mx-auto w-full max-w-screen-2xl">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={pathname}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className={
+                fullBleed
+                  ? "flex flex-1 flex-col"
+                  : "mx-auto w-full max-w-screen-2xl"
+              }
+            >
               <Outlet />
-            </div>
-          )}
+            </motion.div>
+          </AnimatePresence>
         </main>
       </div>
     </div>

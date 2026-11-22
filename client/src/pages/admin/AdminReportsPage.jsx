@@ -1,4 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Clock3, Download, Gauge, Ticket } from "lucide-react";
+import { useMemo } from "react";
 import { toast } from "react-toastify";
 import {
   Bar,
@@ -16,7 +18,9 @@ import WorkspacePageHeader from "../../components/common/WorkspacePageHeader.jsx
 import WorkspaceStatCard from "../../components/common/WorkspaceStatCard.jsx";
 import DashboardErrorState from "../../components/dashboard/DashboardErrorState.jsx";
 import DashboardSkeleton from "../../components/dashboard/DashboardSkeleton.jsx";
+import { Button } from "../../components/ui/button.jsx";
 import useAdminDashboard from "../../hooks/useAdminDashboard.js";
+import { getAssets } from "../../services/assetService.js";
 import { getDashboardErrorMessage } from "../../services/dashboardService.js";
 
 const COLORS = [
@@ -28,8 +32,43 @@ const COLORS = [
   "#646464",
 ];
 
+const ASSET_TYPE_LABELS = {
+  laptop: "Laptop / Máy tính xách tay",
+  desktop: "PC / Workstation",
+  monitor: "Màn hình",
+  printer: "Máy in / Scan",
+  network: "Thiết bị mạng",
+  other: "Thiết bị khác",
+};
+
 function AdminReportsPage() {
   const { data, error, isLoading, refetch } = useAdminDashboard();
+  const { data: assetData } = useQuery({
+    queryKey: ["assets", "report-summary"],
+    queryFn: ({ signal }) => getAssets({}, { signal }),
+  });
+
+  const assetBreakdown = useMemo(() => {
+    const groups = new Map();
+    for (const asset of assetData?.assets ?? []) {
+      const key = asset.type || "other";
+      const current = groups.get(key) ?? {
+        key,
+        label: ASSET_TYPE_LABELS[key] ?? key,
+        total: 0,
+        assigned: 0,
+        available: 0,
+        maintenance: 0,
+      };
+      current.total += 1;
+      if (asset.status === "assigned") current.assigned += 1;
+      else if (asset.status === "in_stock" || asset.status === "available") current.available += 1;
+      else current.maintenance += 1;
+      groups.set(key, current);
+    }
+    return Array.from(groups.values());
+  }, [assetData?.assets]);
+
   const weekly = (data?.charts.ticketsCreatedLast7Days ?? []).map(
     (item, index) => ({
       day: item.name,
@@ -55,24 +94,20 @@ function AdminReportsPage() {
     link.download = "bao-cao-it-helpdesk.csv";
     link.click();
     URL.revokeObjectURL(url);
-    toast.success("Đã xuất báo cáo CSV từ Kho Dữ Liệu ITSM.");
+    toast.success("Đã xuất báo cáo thống kê CSV.");
   }
 
   return (
     <section>
       <WorkspacePageHeader
-        eyebrow="Kho dữ liệu ITSM & BI"
-        title="Báo cáo vận hành & Dự báo phần cứng"
-        description="Phân tích chuyên sâu từ dữ liệu lịch sử ticket, hiệu suất kỹ thuật viên và cảnh báo bảo trì thiết bị."
+        eyebrow="Báo cáo & Phân tích vận hành"
+        title="Báo cáo hiệu suất & Tài sản CMDB"
+        description="Tổng hợp số liệu thực tế từ hệ thống ticket, hiệu suất kỹ thuật viên và tình trạng phân bổ thiết bị."
         actions={
-          <button
-            type="button"
-            onClick={exportReport}
-            className="inline-flex min-h-10 items-center gap-2 rounded-full bg-brand-ink px-4 text-xs font-semibold text-white transition hover:bg-brand-carbon"
-          >
+          <Button type="button" size="pill" onClick={exportReport}>
             <Download className="size-3.5" />
             Xuất Báo Cáo CSV
-          </button>
+          </Button>
         }
       />
       {isLoading ? <DashboardSkeleton /> : null}
@@ -119,91 +154,66 @@ function AdminReportsPage() {
             <CategoryCard categories={categories} />
           </div>
 
-          {/* Predictive Hardware Failure & Technician Performance Grid */}
+          {/* Real CMDB Asset Inventory & Technician Performance Grid */}
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             <section className="overflow-hidden rounded-xl border border-brand-bone bg-white p-5 shadow-xs">
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h2 className="font-display text-sm font-bold text-brand-ink">
-                    Dự Báo Bảo Trì & Tỷ Lệ Lỗi Theo Dòng Thiết Bị
+                    Phân Bổ Tài Sản Thiết Bị (CMDB)
                   </h2>
                   <p className="text-xs text-brand-slate">
-                    Truy vấn kết hợp{" "}
-                    <code className="font-mono text-brand-violet">
-                      dim_device_asset
-                    </code>{" "}
-                    ×{" "}
-                    <code className="font-mono text-brand-violet">
-                      fact_ticket_events
-                    </code>
+                    Thống kê trực tiếp từ danh mục thiết bị trong PostgreSQL
                   </p>
                 </div>
-                <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 uppercase">
-                  Predictive AI
+                <span className="rounded bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-brand-violet uppercase">
+                  CMDB Thực Tế
                 </span>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-brand-bone text-[10px] font-bold text-brand-ash uppercase">
-                      <th className="pb-2">Dòng Thiết Bị (Model)</th>
-                      <th className="pb-2 text-center">Số Lượng</th>
-                      <th className="pb-2 text-center">MTBF</th>
-                      <th className="pb-2 text-right">Khuyến Nghị DW</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-brand-bone">
-                    <tr>
-                      <td className="py-3 font-semibold text-brand-ink">
-                        Dell Latitude 5420 (Batch 2022)
-                      </td>
-                      <td className="py-3 text-center font-mono">142 máy</td>
-                      <td className="py-3 text-center font-mono font-bold text-red-600">
-                        42 ngày
-                      </td>
-                      <td className="py-3 text-right">
-                        <span className="rounded bg-red-50 px-2 py-0.5 font-semibold text-red-600">
-                          Thay pin &amp; nâng RAM
-                        </span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-3 font-semibold text-brand-ink">
-                        HP LaserJet Pro M404dn
-                      </td>
-                      <td className="py-3 text-center font-mono">18 máy</td>
-                      <td className="py-3 text-center font-mono font-bold text-amber-600">
-                        65 ngày
-                      </td>
-                      <td className="py-3 text-right">
-                        <span className="rounded bg-amber-50 px-2 py-0.5 font-semibold text-amber-700">
-                          Cập nhật Firmware LPR
-                        </span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-3 font-semibold text-brand-ink">
-                        MacBook Pro 14&quot; M3 Pro
-                      </td>
-                      <td className="py-3 text-center font-mono">85 máy</td>
-                      <td className="py-3 text-center font-mono font-bold text-brand-emerald">
-                        310 ngày
-                      </td>
-                      <td className="py-3 text-right">
-                        <span className="rounded bg-emerald-50 px-2 py-0.5 font-semibold text-brand-emerald">
-                          Hoạt động ổn định
-                        </span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                {assetBreakdown.length > 0 ? (
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-brand-bone text-[10px] font-bold text-brand-ash uppercase">
+                        <th className="pb-2">Loại Thiết Bị</th>
+                        <th className="pb-2 text-center">Tổng</th>
+                        <th className="pb-2 text-center">Đang Dùng</th>
+                        <th className="pb-2 text-right">Sẵn Sàng / Bảo Trì</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-brand-bone">
+                      {assetBreakdown.map((item) => (
+                        <tr key={item.key}>
+                          <td className="py-3 font-semibold text-brand-ink">
+                            {item.label}
+                          </td>
+                          <td className="py-3 text-center font-mono font-bold text-brand-ink">
+                            {item.total}
+                          </td>
+                          <td className="py-3 text-center font-mono font-semibold text-brand-violet">
+                            {item.assigned}
+                          </td>
+                          <td className="py-3 text-right">
+                            <span className="rounded bg-emerald-50 px-2 py-0.5 font-semibold text-brand-emerald">
+                              {item.available} kho / {item.maintenance} bảo trì
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="py-8 text-center text-xs text-brand-slate">
+                    Chưa có thiết bị nào được ghi nhận trong CMDB.
+                  </p>
+                )}
               </div>
             </section>
 
             <section className="overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs">
               <div className="border-b border-brand-bone px-5 py-4">
                 <h2 className="font-display text-sm font-bold text-brand-ink">
-                  Hiệu Suất Xử Lý Của Kỹ Thuật Viên (dim_agent)
+                  Hiệu Suất Xử Lý Của Kỹ Thuật Viên
                 </h2>
                 <p className="mt-0.5 text-xs text-brand-slate">
                   Tổng hợp từ ticket đã phân công trong hệ thống

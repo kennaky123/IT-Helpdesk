@@ -6,11 +6,22 @@ import TicketListEmptyState from "../../components/ticket/TicketListEmptyState.j
 import TicketListErrorState from "../../components/ticket/TicketListErrorState.jsx";
 import TicketListSkeleton from "../../components/ticket/TicketListSkeleton.jsx";
 import TicketPagination from "../../components/ticket/TicketPagination.jsx";
+import useAdminDashboard from "../../hooks/useAdminDashboard.js";
 import useTicketList, {
   useTicketFilterOptions,
 } from "../../hooks/useTicketList.js";
 import useTicketListQuery from "../../hooks/useTicketListQuery.js";
 import { getTicketListErrorMessage } from "../../services/ticketService.js";
+
+function formatResolutionMetric(resolutionTime) {
+  if (!resolutionTime || resolutionTime.minutes == null) {
+    return "Chưa có";
+  }
+  if (resolutionTime.minutes < 60) {
+    return `${Math.round(resolutionTime.minutes)} phút`;
+  }
+  return `${resolutionTime.hours} giờ`;
+}
 
 function AdminTicketsPage() {
   const {
@@ -23,6 +34,7 @@ function AdminTicketsPage() {
   } = useTicketListQuery();
   const ticketList = useTicketList(query);
   const filterOptions = useTicketFilterOptions();
+  const { data: dashboard } = useAdminDashboard();
   const tickets = useMemo(
     () => ticketList.data?.tickets ?? [],
     [ticketList.data?.tickets],
@@ -30,9 +42,6 @@ function AdminTicketsPage() {
   const totalItems = ticketList.data?.pagination?.totalItems ?? tickets.length;
 
   const queueMetrics = useMemo(() => {
-    const openCount = tickets.filter(
-      (t) => !["resolved", "closed", "cancelled"].includes(t.status),
-    ).length;
     const p1Count = tickets.filter(
       (t) =>
         t.priority === "urgent" &&
@@ -45,11 +54,18 @@ function AdminTicketsPage() {
     ).length;
 
     return {
-      openCount: totalItems || openCount,
+      totalTickets: dashboard?.summary?.totalTickets ?? totalItems,
       p1Count,
       unassignedCount,
+      resolutionText: formatResolutionMetric(
+        dashboard?.summary?.averageResolutionTime,
+      ),
+      resolutionSample:
+        dashboard?.summary?.averageResolutionTime?.sampleSize ?? 0,
+      averageRating: dashboard?.summary?.averageRating ?? null,
+      ratingCount: dashboard?.summary?.ratingCount ?? 0,
     };
-  }, [tickets, totalItems]);
+  }, [dashboard?.summary, tickets, totalItems]);
 
   return (
     <section
@@ -81,10 +97,10 @@ function AdminTicketsPage() {
           </div>
           <div className="mt-3 flex items-baseline justify-between">
             <span className="font-display text-2xl font-extrabold text-brand-ink">
-              {queueMetrics.openCount}
+              {queueMetrics.totalTickets}
             </span>
             <span className="inline-flex items-center text-xs font-semibold text-brand-emerald">
-              Real-time Queue
+              Dữ liệu thực
             </span>
           </div>
         </div>
@@ -172,7 +188,7 @@ function AdminTicketsPage() {
         <div className="flex flex-col justify-between rounded-xl border border-brand-bone bg-white p-4 shadow-xs transition-colors hover:border-brand-ash">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold tracking-wider text-brand-slate uppercase">
-              Thời Gian Phản Hồi TB
+              Thời Gian Xử Lý TB
             </span>
             <span className="flex h-6 w-6 items-center justify-center rounded-md bg-brand-blue/10 text-brand-blue">
               <svg
@@ -192,10 +208,10 @@ function AdminTicketsPage() {
           </div>
           <div className="mt-3 flex items-baseline justify-between">
             <span className="font-display text-2xl font-extrabold text-brand-ink">
-              11p 20s
+              {queueMetrics.resolutionText}
             </span>
-            <span className="text-xs font-medium text-brand-emerald">
-              Mục tiêu &lt; 15p
+            <span className="text-xs font-medium text-brand-slate">
+              {queueMetrics.resolutionSample} đã xong
             </span>
           </div>
         </div>
@@ -223,13 +239,15 @@ function AdminTicketsPage() {
           </div>
           <div className="mt-3 flex items-baseline justify-between">
             <span className="font-display text-2xl font-extrabold text-brand-ink">
-              98.4%
+              {queueMetrics.averageRating != null
+                ? `${queueMetrics.averageRating}/5`
+                : "Chưa có"}
             </span>
             <Link
               to="/topology"
               className="text-xs font-semibold text-brand-violet hover:underline"
             >
-              Sơ đồ mạng →
+              {queueMetrics.ratingCount} đánh giá →
             </Link>
           </div>
         </div>

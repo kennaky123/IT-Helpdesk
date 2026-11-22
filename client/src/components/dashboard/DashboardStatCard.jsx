@@ -1,3 +1,5 @@
+import { motion } from "motion/react";
+
 const TONE_CLASSES = {
   blue: {
     icon: "bg-blue-50 text-brand-blue",
@@ -21,7 +23,13 @@ function DashboardStatCard({ icon: Icon, label, value, description, tone }) {
   const toneClasses = TONE_CLASSES[tone] ?? TONE_CLASSES.blue;
 
   return (
-    <article className="bg-white p-5 rounded-2xl border border-brand-bone shadow-xs">
+    <motion.article
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      className="bg-white p-5 rounded-2xl border border-brand-bone shadow-xs"
+    >
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-semibold text-brand-slate">{label}</span>
         <span
@@ -36,7 +44,7 @@ function DashboardStatCard({ icon: Icon, label, value, description, tone }) {
       <div className={`text-[11px] font-medium mt-1 ${toneClasses.badge}`}>
         {description}
       </div>
-    </article>
+    </motion.article>
   );
 }
 

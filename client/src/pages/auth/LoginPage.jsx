@@ -7,6 +7,7 @@ import {
   Mail,
   ShieldCheck,
 } from "lucide-react";
+import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import {
   Link,
@@ -237,7 +238,12 @@ function LoginPage() {
           </div>
         </div>
 
-        <div className="relative max-w-xl py-12">
+        <motion.div
+          initial={{ opacity: 0, x: -16 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.3, ease: "easeOut" }}
+          className="relative max-w-xl py-12"
+        >
           <span className="inline-flex items-center gap-1.5 rounded-full border border-brand-violet/40 bg-brand-violet/20 px-3 py-1 text-xs font-semibold text-brand-mint">
             <span className="h-1.5 w-1.5 rounded-full bg-brand-mint" />
             Hệ thống quản lý sự cố &amp; hạ tầng CNTT chuẩn ITIL v4
@@ -247,15 +253,15 @@ function LoginPage() {
           </h2>
           <p className="mt-4 max-w-lg text-sm leading-6 text-slate-300">
             Kết nối Cổng tự phục vụ nhân viên, Bàn làm việc 3 cột của kỹ thuật
-            viên, Sơ đồ mạng Campus và Kho dữ liệu Star Schema trên một nền
+            viên, Sơ đồ mạng Campus và Hệ thống phân tích dữ liệu PostgreSQL trên một nền
             tảng duy nhất.
           </p>
 
           <ul className="mt-8 space-y-3.5 text-xs font-medium text-slate-200">
             {[
               "Hàng đợi Ticket mật độ cao với cảnh báo SLA P1–P4 thời gian thực",
-              "Bàn làm việc 3 cột tích hợp Telemetry thiết bị & Canned Responses",
-              "Bản đồ mạng Campus tương tác & Kho dữ liệu OLAP Star Schema",
+              "Bàn làm việc 3 cột tích hợp CMDB thiết bị & Canned Responses",
+              "Bản đồ mạng Campus tương tác & Thống kê vận hành PostgreSQL",
             ].map((item) => (
               <li key={item} className="flex items-center gap-2.5">
                 <CheckCircle2
@@ -266,7 +272,7 @@ function LoginPage() {
               </li>
             ))}
           </ul>
-        </div>
+        </motion.div>
 
         <div className="relative flex items-center justify-between border-t border-white/10 pt-6 font-mono text-xs text-slate-400">
           <span>DeskPro IT Service Management</span>
@@ -296,7 +302,12 @@ function LoginPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-brand-bone bg-white p-6 shadow-xs sm:p-8">
+          <motion.div
+            initial={{ opacity: 0, y: 16, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.28, ease: "easeOut" }}
+            className="rounded-2xl border border-brand-bone bg-white p-6 shadow-xs sm:p-8"
+          >
             <div>
               <span className="inline-flex items-center rounded-md bg-brand-violet/10 px-2 py-0.5 text-[11px] font-bold text-brand-violet uppercase">
                 Xác thực SSO / Nội bộ
@@ -474,7 +485,7 @@ function LoginPage() {
                 RBAC theo vai trò.
               </p>
             </form>
-          </div>
+          </motion.div>
         </div>
       </section>
     </main>

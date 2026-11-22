@@ -1,3 +1,4 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Edit3,
   FolderCheck,
@@ -8,11 +9,11 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import WorkspacePageHeader from "../../components/common/WorkspacePageHeader.jsx";
 import WorkspaceStatCard from "../../components/common/WorkspaceStatCard.jsx";
-import { REALTIME_DATA_EVENT } from "../../hooks/useRealtimeUpdates.js";
+import { Button } from "../../components/ui/button.jsx";
 import {
   createAdminCategory,
   deleteAdminCategory,
@@ -23,38 +24,62 @@ import {
 import { normalizeSearch } from "../../utils/adminUserFormatters.js";
 
 function AdminCategoriesPage() {
-  const [categories, setCategories] = useState([]);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: "", description: "", active: true });
-  const [saving, setSaving] = useState(false);
 
-  const loadCategories = useCallback(async (options = {}) => {
-    setCategories(await getAdminCategories(options));
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    getAdminCategories({ signal: controller.signal })
-      .then(setCategories)
-      .catch((error) => {
-        if (error.code !== "ERR_CANCELED")
-          toast.error(getAdminErrorMessage(error));
-      });
-    return () => controller.abort();
-  }, []);
+  const { data: categories = [], error: listError } = useQuery({
+    queryKey: ["admin", "categories"],
+    queryFn: ({ signal }) => getAdminCategories({ signal }),
+  });
 
   useEffect(() => {
-    const refresh = () => {
-      if (!document.hidden) loadCategories().catch(() => {});
-    };
-    const intervalId = window.setInterval(refresh, 10_000);
-    window.addEventListener(REALTIME_DATA_EVENT, refresh);
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener(REALTIME_DATA_EVENT, refresh);
-    };
-  }, [loadCategories]);
+    if (listError) {
+      toast.error(getAdminErrorMessage(listError));
+    }
+  }, [listError]);
+
+  function invalidateCategories() {
+    queryClient.invalidateQueries({ queryKey: ["admin", "categories"] });
+    queryClient.invalidateQueries({ queryKey: ["categories"] });
+    queryClient.invalidateQueries({ queryKey: ["tickets", "filter-options"] });
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: ({ id, values }) =>
+      id ? updateAdminCategory(id, values) : createAdminCategory(values),
+    onSuccess: (_saved, variables) => {
+      invalidateCategories();
+      setEditing(null);
+      toast.success(
+        variables.id ? "Đã cập nhật danh mục." : "Đã thêm danh mục mới.",
+      );
+    },
+    onError: (error) => {
+      toast.error(getAdminErrorMessage(error));
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: (item) =>
+      updateAdminCategory(item.id, { ...item, active: !item.active }),
+    onSuccess: invalidateCategories,
+    onError: (error) => {
+      toast.error(getAdminErrorMessage(error));
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (item) => deleteAdminCategory(item.id),
+    onSuccess: () => {
+      invalidateCategories();
+      toast.success("Đã xóa danh mục khỏi hệ thống.");
+    },
+    onError: (error) => {
+      toast.error(getAdminErrorMessage(error));
+    },
+  });
 
   const filtered = useMemo(
     () =>
@@ -79,60 +104,30 @@ function AdminCategoriesPage() {
     );
   }
 
-  async function save(event) {
+  function save(event) {
     event.preventDefault();
-    if (form.name.trim().length < 2)
-      return toast.error("Tên danh mục phải có ít nhất 2 ký tự.");
-    setSaving(true);
-    try {
-      const saved = editing.id
-        ? await updateAdminCategory(editing.id, form)
-        : await createAdminCategory(form);
-      setCategories((items) =>
-        editing.id
-          ? items.map((item) => (item.id === saved.id ? saved : item))
-          : [...items, saved],
-      );
-      setEditing(null);
-      toast.success(
-        editing.id ? "Đã cập nhật danh mục." : "Đã thêm danh mục mới.",
-      );
-    } catch (error) {
-      toast.error(getAdminErrorMessage(error));
-    } finally {
-      setSaving(false);
+    if (form.name.trim().length < 2) {
+      toast.error("Tên danh mục phải có ít nhất 2 ký tự.");
+      return;
     }
+    saveMutation.mutate({ id: editing.id, values: form });
   }
 
-  async function toggleCategory(item) {
-    try {
-      const saved = await updateAdminCategory(item.id, {
-        ...item,
-        active: !item.active,
-      });
-      setCategories((items) =>
-        items.map((category) => (category.id === saved.id ? saved : category)),
-      );
-    } catch (error) {
-      toast.error(getAdminErrorMessage(error));
-    }
+  function toggleCategory(item) {
+    toggleMutation.mutate(item);
   }
 
-  async function removeCategory(item) {
-    if (item.tickets > 0)
-      return toast.warning(
+  function removeCategory(item) {
+    if (item.tickets > 0) {
+      toast.warning(
         "Không thể xóa danh mục đã có ticket. Hãy tạm ẩn danh mục.",
       );
-    try {
-      await deleteAdminCategory(item.id);
-      setCategories((items) =>
-        items.filter((category) => category.id !== item.id),
-      );
-      toast.success("Đã xóa danh mục khỏi hệ thống.");
-    } catch (error) {
-      toast.error(getAdminErrorMessage(error));
+      return;
     }
+    deleteMutation.mutate(item);
   }
+
+  const saving = saveMutation.isPending;
 
   return (
     <section>
@@ -141,14 +136,10 @@ function AdminCategoriesPage() {
         title="Danh mục sự cố (Service Catalog)"
         description="Thiết lập nhóm sự cố để tự động định tuyến ticket và áp dụng chính sách SLA tương ứng."
         actions={
-          <button
-            type="button"
-            onClick={() => openForm()}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-brand-ink px-4 text-xs font-semibold text-white transition hover:bg-brand-carbon"
-          >
+          <Button type="button" size="pill" onClick={() => openForm()}>
             <Plus className="size-4" />
             Thêm danh mục
-          </button>
+          </Button>
         }
       />
 

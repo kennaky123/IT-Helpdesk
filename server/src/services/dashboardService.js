@@ -3,6 +3,7 @@ import {
   TICKET_STATUSES,
 } from "../constants/ticket.js";
 import Category from "../models/Category.js";
+import Rating from "../models/Rating.js";
 import Ticket from "../models/Ticket.js";
 import User from "../models/User.js";
 
@@ -172,7 +173,13 @@ export function formatAverageResolutionTime(
   };
 }
 
-export function normalizeDashboardSummary(rawSummary, resolutionStats) {
+export function normalizeDashboardSummary(
+  rawSummary,
+  resolutionStats,
+  ratingStats = {},
+) {
+  const ratingCount = Number(ratingStats?.ratingCount ?? 0);
+  const averageScore = Number(ratingStats?.averageScore);
   return {
     totalTickets: Number(rawSummary?.totalTickets ?? 0),
     pendingTickets: Number(rawSummary?.pendingTickets ?? 0),
@@ -183,6 +190,11 @@ export function normalizeDashboardSummary(rawSummary, resolutionStats) {
       resolutionStats?.averageMilliseconds,
       Number(resolutionStats?.sampleSize ?? 0),
     ),
+    ratingCount,
+    averageRating:
+      ratingCount > 0 && Number.isFinite(averageScore)
+        ? Math.round(averageScore * 10) / 10
+        : null,
   };
 }
 
@@ -312,6 +324,19 @@ function getTicketResolutionTrend(range) {
     { $match: { status: { $in: COMPLETED_STATUSES }, resolvedAt: { $gte: range.startDate, $lt: range.endExclusiveDate } } },
     { $group: { _id: { $dateToString: { date: "$resolvedAt", format: "%Y-%m-%d", timezone: DASHBOARD_TIME_ZONE } }, value: { $sum: 1 } } },
     { $sort: { _id: 1 } },
+  ]);
+}
+
+function getRatingStatistics() {
+  return Rating.aggregate([
+    {
+      $group: {
+        _id: null,
+        ratingCount: { $sum: 1 },
+        averageScore: { $avg: "$score" },
+      },
+    },
+    { $project: { _id: 0 } },
   ]);
 }
 
@@ -485,6 +510,7 @@ export async function getAdminDashboard(referenceDate = new Date()) {
     creationTrend,
     resolutionTrend,
     resolutionResult,
+    ratingResult,
     categories,
     technicianPerformance,
     latestTickets,
@@ -493,6 +519,7 @@ export async function getAdminDashboard(referenceDate = new Date()) {
     getTicketCreationTrend(range),
     getTicketResolutionTrend(range),
     getResolutionStatistics(),
+    getRatingStatistics(),
     Category.find().select("name slug").sort({ name: 1, _id: 1 }).lean(),
     getTechnicianPerformance(),
     getLatestTickets(),
@@ -500,6 +527,7 @@ export async function getAdminDashboard(referenceDate = new Date()) {
   const snapshot = snapshotResult[0] ?? {};
   const rawSummary = snapshot.summary?.[0] ?? {};
   const resolutionStats = resolutionResult[0] ?? {};
+  const ratingStats = ratingResult[0] ?? {};
   const ticketsByStatus = fillEnumSeries(
     snapshot.byStatus,
     STATUS_DEFINITIONS,
@@ -527,7 +555,7 @@ export async function getAdminDashboard(referenceDate = new Date()) {
       completedStatuses: [...COMPLETED_STATUSES],
       averageResolutionTimeBasis: "createdAt_to_resolvedAt",
     },
-    summary: normalizeDashboardSummary(rawSummary, resolutionStats),
+    summary: normalizeDashboardSummary(rawSummary, resolutionStats, ratingStats),
     charts: {
       ticketsByCategory: mergeCategoryStatistics(
         categories,

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { SidebarContent } from "./Sidebar.jsx";
 
 const FOCUSABLE_SELECTOR = [
@@ -84,41 +85,49 @@ function MobileSidebar({ open, onClose }) {
     };
   }, [onClose, open]);
 
-  if (!open) {
-    return null;
-  }
-
   return (
-    <div className="fixed inset-0 z-50 lg:hidden">
-      <button
-        type="button"
-        className="absolute inset-0 cursor-default bg-slate-950/55 backdrop-blur-[1px]"
-        onClick={onClose}
-        aria-label="Đóng menu điều hướng"
-      />
-      <aside
-        ref={dialogRef}
-        id="mobile-sidebar"
-        className="relative h-full w-[min(20rem,88vw)] shadow-2xl"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="mobile-sidebar-title"
-      >
-        <h2 id="mobile-sidebar-title" className="sr-only">
-          Menu điều hướng
-        </h2>
-        <button
-          ref={closeButtonRef}
-          type="button"
-          onClick={onClose}
-          className="absolute top-3 right-3 z-10 flex size-10 items-center justify-center rounded-lg text-slate-300 transition hover:bg-slate-800 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400"
-          aria-label="Đóng menu"
-        >
-          <X className="size-5" aria-hidden="true" />
-        </button>
-        <SidebarContent onNavigate={onClose} />
-      </aside>
-    </div>
+    <AnimatePresence>
+      {open ? (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <motion.button
+            type="button"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="absolute inset-0 cursor-default bg-slate-950/55 backdrop-blur-[1px]"
+            onClick={onClose}
+            aria-label="Đóng menu điều hướng"
+          />
+          <motion.aside
+            ref={dialogRef}
+            id="mobile-sidebar"
+            initial={{ x: "-100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "-100%" }}
+            transition={{ type: "spring", stiffness: 360, damping: 34 }}
+            className="relative h-full w-[min(20rem,88vw)] shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mobile-sidebar-title"
+          >
+            <h2 id="mobile-sidebar-title" className="sr-only">
+              Menu điều hướng
+            </h2>
+            <button
+              ref={closeButtonRef}
+              type="button"
+              onClick={onClose}
+              className="absolute top-3 right-3 z-10 flex size-10 items-center justify-center rounded-lg text-slate-300 transition hover:bg-slate-800 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400"
+              aria-label="Đóng menu"
+            >
+              <X className="size-5" aria-hidden="true" />
+            </button>
+            <SidebarContent onNavigate={onClose} />
+          </motion.aside>
+        </div>
+      ) : null}
+    </AnimatePresence>
   );
 }
 

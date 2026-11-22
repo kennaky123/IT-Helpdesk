@@ -1,3 +1,4 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CircleGauge,
   Edit3,
@@ -10,14 +11,14 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import TechnicianFormModal from "../../components/admin/technicians/TechnicianFormModal.jsx";
 import ConfirmActionModal from "../../components/common/ConfirmActionModal.jsx";
 import WorkspacePageHeader from "../../components/common/WorkspacePageHeader.jsx";
 import WorkspaceStatCard from "../../components/common/WorkspaceStatCard.jsx";
+import { Button } from "../../components/ui/button.jsx";
 import useClickOutside from "../../hooks/useClickOutside.js";
-import { REALTIME_DATA_EVENT } from "../../hooks/useRealtimeUpdates.js";
 import {
   createAdminTechnician,
   deleteAdminTechnician,
@@ -98,41 +99,77 @@ function TechnicianActionMenu({
 }
 
 function AdminTechniciansPage() {
-  const [technicians, setTechnicians] = useState([]);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [formTechnician, setFormTechnician] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
   const [deleteTechnician, setDeleteTechnician] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
-  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
-  const loadTechnicians = useCallback(async (options = {}) => {
-    setTechnicians(await getAdminTechnicians(options));
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    getAdminTechnicians({ signal: controller.signal })
-      .then(setTechnicians)
-      .catch((error) => {
-        if (error.code !== "ERR_CANCELED")
-          toast.error(getAdminErrorMessage(error));
-      });
-    return () => controller.abort();
-  }, []);
+  const { data: technicians = [], error: listError } = useQuery({
+    queryKey: ["admin", "technicians"],
+    queryFn: ({ signal }) => getAdminTechnicians({ signal }),
+  });
 
   useEffect(() => {
-    const refresh = () => {
-      if (!document.hidden) loadTechnicians().catch(() => {});
-    };
-    const intervalId = window.setInterval(refresh, 10_000);
-    window.addEventListener(REALTIME_DATA_EVENT, refresh);
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener(REALTIME_DATA_EVENT, refresh);
-    };
-  }, [loadTechnicians]);
+    if (listError) {
+      toast.error(getAdminErrorMessage(listError));
+    }
+  }, [listError]);
+
+  function invalidateTechnicians() {
+    queryClient.invalidateQueries({ queryKey: ["admin", "technicians"] });
+    queryClient.invalidateQueries({ queryKey: ["admin", "users"] });
+    queryClient.invalidateQueries({ queryKey: ["technicians"] });
+    queryClient.invalidateQueries({ queryKey: ["tickets", "filter-options"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: ({ id, values }) =>
+      id ? updateAdminTechnician(id, values) : createAdminTechnician(values),
+    onSuccess: (_saved, variables) => {
+      invalidateTechnicians();
+      setFormOpen(false);
+      toast.success(
+        variables.id
+          ? "Đã cập nhật thông tin kỹ thuật viên."
+          : "Đã thêm kỹ thuật viên mới.",
+      );
+    },
+    onError: (error) => {
+      toast.error(getAdminErrorMessage(error));
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => deleteAdminTechnician(id),
+    onSuccess: () => {
+      invalidateTechnicians();
+      setDeleteTechnician(null);
+      toast.success("Đã xóa kỹ thuật viên khỏi hệ thống.");
+    },
+    onError: (error) => {
+      toast.error(getAdminErrorMessage(error));
+    },
+  });
+
+  const availabilityMutation = useMutation({
+    mutationFn: ({ technician, nextStatus }) =>
+      updateAdminTechnician(technician.id, { ...technician, status: nextStatus }),
+    onSuccess: (_saved, variables) => {
+      invalidateTechnicians();
+      toast.success(
+        variables.nextStatus === "online"
+          ? "Kỹ thuật viên đã sẵn sàng nhận ticket."
+          : "Đã đặt kỹ thuật viên ở trạng thái ngoại tuyến.",
+      );
+    },
+    onError: (error) => {
+      toast.error(getAdminErrorMessage(error));
+    },
+  });
 
   const filtered = useMemo(
     () =>
@@ -163,79 +200,33 @@ function AdminTechniciansPage() {
     setFormOpen(true);
   }
 
-  async function saveTechnician(values) {
-    try {
-      const saved = formTechnician
-        ? await updateAdminTechnician(formTechnician.id, values)
-        : await createAdminTechnician(values);
-      setTechnicians((items) =>
-        formTechnician
-          ? items.map((item) => (item.id === saved.id ? saved : item))
-          : [saved, ...items],
-      );
-      setFormOpen(false);
-      toast.success(
-        formTechnician
-          ? "Đã cập nhật thông tin kỹ thuật viên."
-          : "Đã thêm kỹ thuật viên mới.",
-      );
-    } catch (error) {
-      toast.error(getAdminErrorMessage(error));
-      throw error;
-    }
+  function saveTechnician(values) {
+    return saveMutation.mutateAsync({ id: formTechnician?.id, values });
   }
 
-  async function confirmDelete() {
-    setDeleteSubmitting(true);
-    try {
-      await deleteAdminTechnician(deleteTechnician.id);
-      setTechnicians((items) =>
-        items.filter((item) => item.id !== deleteTechnician.id),
-      );
-      setDeleteTechnician(null);
-      toast.success("Đã xóa kỹ thuật viên khỏi hệ thống.");
-    } catch (error) {
-      toast.error(getAdminErrorMessage(error));
-    } finally {
-      setDeleteSubmitting(false);
-    }
+  function confirmDelete() {
+    if (!deleteTechnician) return;
+    deleteMutation.mutate(deleteTechnician.id);
   }
 
-  async function toggleAvailability(technician) {
+  function toggleAvailability(technician) {
     const nextStatus = technician.status === "offline" ? "online" : "offline";
-    try {
-      const saved = await updateAdminTechnician(technician.id, {
-        ...technician,
-        status: nextStatus,
-      });
-      setTechnicians((items) =>
-        items.map((item) => (item.id === technician.id ? saved : item)),
-      );
-      toast.success(
-        nextStatus === "online"
-          ? "Kỹ thuật viên đã sẵn sàng nhận ticket."
-          : "Đã đặt kỹ thuật viên ở trạng thái ngoại tuyến.",
-      );
-    } catch (error) {
-      toast.error(getAdminErrorMessage(error));
-    }
+    availabilityMutation.mutate({ technician, nextStatus });
   }
+
+  const deleteSubmitting = deleteMutation.isPending;
 
   return (
     <section>
       <WorkspacePageHeader
-        eyebrow="Quản trị đội ngũ kỹ thuật (dim_agent)"
+        eyebrow="Quản trị đội ngũ kỹ thuật"
         title="Nhân viên kỹ thuật (IT Agents)"
         description="Quản lý đội ngũ kỹ sư L1/L2/L3, chuyên môn và khối lượng ticket đang phụ trách."
         actions={
-          <button
-            type="button"
-            onClick={openCreateForm}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-brand-ink px-4 text-xs font-semibold text-white transition hover:bg-brand-carbon"
-          >
+          <Button type="button" size="pill" onClick={openCreateForm}>
             <Plus className="size-4" />
             Thêm kỹ thuật viên
-          </button>
+          </Button>
         }
       />
 
@@ -365,9 +356,11 @@ function AdminTechniciansPage() {
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-[11px] text-brand-ash">SLA</dt>
+                    <dt className="text-[11px] text-brand-ash">Tỷ lệ xong</dt>
                     <dd className="mt-0.5 font-mono text-sm font-bold text-brand-emerald">
-                      98%
+                      {item.active + item.completed > 0
+                        ? `${Math.round((item.completed / (item.active + item.completed)) * 100)}%`
+                        : "—"}
                     </dd>
                   </div>
                 </dl>

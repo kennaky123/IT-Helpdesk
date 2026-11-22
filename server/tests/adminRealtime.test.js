@@ -5,7 +5,7 @@ import test from "node:test";
 process.env.NODE_ENV = "test";
 
 const [
-  { validateCategory, validateTechnician },
+  { validateAdminUser, validateAdminUserStatus, validateCategory, validateTechnician },
   { publishDataChanged, subscribeToRealtimeEvents },
 ] = await Promise.all([
   import("../src/validators/adminValidators.js"),
@@ -63,6 +63,37 @@ test("validateCategory giữ đúng trạng thái ẩn của danh mục", async 
     description: "Thiết bị vật lý",
     isActive: false,
   });
+});
+
+test("validateAdminUser chuẩn hóa và kiểm tra payload người dùng", async () => {
+  const request = {
+    method: "POST",
+    body: {
+      fullName: "  Nguyễn Văn B  ",
+      email: "  USERB@EXAMPLE.COM ",
+      phone: "0901234567",
+      department: " Kế toán ",
+      role: "user",
+      status: "locked",
+      password: "Password123",
+    },
+  };
+
+  assert.equal(await runMiddleware(validateAdminUser, request), undefined);
+  assert.equal(request.body.fullName, "Nguyễn Văn B");
+  assert.equal(request.body.email, "userb@example.com");
+  assert.equal(request.body.department, "Kế toán");
+  assert.equal(request.body.status, "inactive");
+});
+
+test("validateAdminUserStatus kiểm tra trạng thái active hoặc locked", async () => {
+  const okRequest = { body: { status: "locked" } };
+  assert.equal(await runMiddleware(validateAdminUserStatus, okRequest), undefined);
+  assert.equal(okRequest.body.status, "inactive");
+
+  const badRequest = { body: { status: "unknown" } };
+  const err = await runMiddleware(validateAdminUserStatus, badRequest);
+  assert.equal(err.statusCode, 400);
 });
 
 test("realtime service phát data-changed tới subscriber đang kết nối", () => {

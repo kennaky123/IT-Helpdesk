@@ -1,4 +1,5 @@
 import { isValidId } from "../config/database.js";
+import { USER_ROLES } from "../models/User.js";
 import ApiError from "../utils/ApiError.js";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -21,6 +22,12 @@ function reject(errors, next) {
     : next();
 }
 
+function normalizeUserStatus(rawStatus) {
+  if (rawStatus === "locked" || rawStatus === "inactive") return "inactive";
+  if (rawStatus === "active") return "active";
+  return null;
+}
+
 export function validateObjectId(parameterName) {
   return (request, _response, next) => {
     if (!isValidId(request.params[parameterName])) {
@@ -28,6 +35,57 @@ export function validateObjectId(parameterName) {
     }
     return next();
   };
+}
+
+export function validateAdminUser(request, _response, next) {
+  const body = request.body ?? {};
+  const errors = [];
+  const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+  const department = typeof body.department === "string" ? body.department.trim() : "";
+  const role = typeof body.role === "string" ? body.role.trim() : "user";
+  const status = normalizeUserStatus(body.status ?? "active");
+
+  if (fullName.length < 2 || fullName.length > 100) {
+    errors.push("Họ tên phải có từ 2 đến 100 ký tự.");
+  }
+  if (!emailPattern.test(email) || email.length > 254) {
+    errors.push("Email không đúng định dạng.");
+  }
+  if (phone && !phonePattern.test(phone)) {
+    errors.push("Số điện thoại không đúng định dạng.");
+  }
+  if (department.length > 100) {
+    errors.push("Phòng ban không được vượt quá 100 ký tự.");
+  }
+  if (!USER_ROLES.includes(role)) {
+    errors.push("Vai trò người dùng không hợp lệ.");
+  }
+  if (!status) {
+    errors.push("Trạng thái tài khoản không hợp lệ.");
+  }
+  errors.push(...validatePassword(body.password, request.method === "POST"));
+
+  request.body = {
+    fullName,
+    email,
+    phone: phone || null,
+    department: department || null,
+    role,
+    status: status ?? "active",
+    password: body.password || null,
+  };
+  return reject(errors, next);
+}
+
+export function validateAdminUserStatus(request, _response, next) {
+  const status = normalizeUserStatus(request.body?.status);
+  if (!status) {
+    return next(new ApiError(400, "Trạng thái tài khoản không hợp lệ."));
+  }
+  request.body = { status };
+  return next();
 }
 
 export function validateTechnician(request, _response, next) {

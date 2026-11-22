@@ -1,3 +1,5 @@
+import { motion } from "motion/react";
+
 function DashboardChartCard({
   titleId,
   title,
@@ -7,7 +9,10 @@ function DashboardChartCard({
   className = "",
 }) {
   return (
-    <section
+    <motion.section
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
       className={`min-w-0 overflow-hidden rounded-2xl border border-brand-bone bg-white p-5 shadow-xs ${className}`}
       aria-labelledby={titleId}
     >
@@ -28,7 +33,7 @@ function DashboardChartCard({
         ) : null}
       </div>
       <div className="min-w-0">{children}</div>
-    </section>
+    </motion.section>
   );
 }
 

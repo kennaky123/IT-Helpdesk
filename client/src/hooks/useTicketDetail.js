@@ -1,122 +1,56 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getTicketComments,
   getTicketDetail,
   getTicketHistory,
 } from "../services/ticketService.js";
-import { REALTIME_DATA_EVENT } from "./useRealtimeUpdates.js";
 
 function useTicketDetail(ticketId) {
-  const [requestVersion, setRequestVersion] = useState(0);
-  const [state, setState] = useState({
-    ticket: null,
-    ticketError: null,
-    comments: null,
-    commentsError: null,
-    history: null,
-    historyError: null,
-    settledTicketKey: null,
-    settledCommentsKey: null,
-    settledHistoryKey: null,
+  const queryClient = useQueryClient();
+  const enabled = Boolean(ticketId);
+
+  const ticketQuery = useQuery({
+    queryKey: ["ticket", ticketId, "detail"],
+    queryFn: ({ signal }) => getTicketDetail(ticketId, { signal }),
+    enabled,
+    refetchInterval: 15_000,
   });
-  const requestKey = `${ticketId}:${requestVersion}`;
 
-  useEffect(() => {
-    const abortController = new AbortController();
-    const options = { signal: abortController.signal };
+  const commentsQuery = useQuery({
+    queryKey: ["ticket", ticketId, "comments"],
+    queryFn: ({ signal }) => getTicketComments(ticketId, { signal }),
+    enabled,
+    refetchInterval: 15_000,
+  });
 
-    getTicketDetail(ticketId, options)
-      .then((ticket) => {
-        setState((currentState) => ({
-          ...currentState,
-          ticket,
-          ticketError: null,
-          settledTicketKey: requestKey,
-        }));
-      })
-      .catch((error) => {
-        if (error.code !== "ERR_CANCELED") {
-          setState((currentState) => ({
-            ...currentState,
-            ticket: null,
-            ticketError: error,
-            settledTicketKey: requestKey,
-          }));
-        }
-      });
-
-    getTicketComments(ticketId, options)
-      .then((comments) => {
-        setState((currentState) => ({
-          ...currentState,
-          comments,
-          commentsError: null,
-          settledCommentsKey: requestKey,
-        }));
-      })
-      .catch((error) => {
-        if (error.code !== "ERR_CANCELED") {
-          setState((currentState) => ({
-            ...currentState,
-            comments: null,
-            commentsError: error,
-            settledCommentsKey: requestKey,
-          }));
-        }
-      });
-
-    getTicketHistory(ticketId, options)
-      .then((history) => {
-        setState((currentState) => ({
-          ...currentState,
-          history,
-          historyError: null,
-          settledHistoryKey: requestKey,
-        }));
-      })
-      .catch((error) => {
-        if (error.code !== "ERR_CANCELED") {
-          setState((currentState) => ({
-            ...currentState,
-            history: null,
-            historyError: error,
-            settledHistoryKey: requestKey,
-          }));
-        }
-      });
-
-    return () => abortController.abort();
-  }, [requestKey, ticketId]);
-
-  useEffect(() => {
-    const refresh = () => {
-      if (!document.hidden) setRequestVersion((currentVersion) => currentVersion + 1);
-    };
-    const intervalId = window.setInterval(refresh, 5_000);
-    window.addEventListener("focus", refresh);
-    window.addEventListener(REALTIME_DATA_EVENT, refresh);
-    return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", refresh);
-      window.removeEventListener(REALTIME_DATA_EVENT, refresh);
-    };
-  }, []);
+  const historyQuery = useQuery({
+    queryKey: ["ticket", ticketId, "history"],
+    queryFn: ({ signal }) => getTicketHistory(ticketId, { signal }),
+    enabled,
+    refetchInterval: 15_000,
+  });
 
   const refetch = useCallback(() => {
-    setRequestVersion((currentVersion) => currentVersion + 1);
-  }, []);
+    if (!ticketId) return Promise.resolve();
+    return queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
+  }, [queryClient, ticketId]);
 
   return {
-    ticket: state.ticket,
-    ticketError: state.ticketError,
-    comments: state.comments,
-    commentsError: state.commentsError,
-    history: state.history,
-    historyError: state.historyError,
-    isTicketLoading: !state.ticket && state.settledTicketKey !== requestKey,
-    isRefreshing: Boolean(state.ticket) && state.settledTicketKey !== requestKey,
-    areCommentsLoading: !state.comments && state.settledCommentsKey !== requestKey,
-    isHistoryLoading: !state.history && state.settledHistoryKey !== requestKey,
+    ticket: ticketQuery.data ?? null,
+    ticketError: ticketQuery.error ?? null,
+    comments: commentsQuery.data ?? null,
+    commentsError: commentsQuery.error ?? null,
+    history: historyQuery.data ?? null,
+    historyError: historyQuery.error ?? null,
+    isTicketLoading: !ticketQuery.data && ticketQuery.isPending,
+    isRefreshing:
+      Boolean(ticketQuery.data) &&
+      (ticketQuery.isFetching ||
+        commentsQuery.isFetching ||
+        historyQuery.isFetching),
+    areCommentsLoading: !commentsQuery.data && commentsQuery.isPending,
+    isHistoryLoading: !historyQuery.data && historyQuery.isPending,
     refetch,
   };
 }

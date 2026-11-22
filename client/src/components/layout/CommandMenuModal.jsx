@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Compass, Cpu, FileText, Search } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import { getNavigationForRole } from "../../constants/navigation.js";
 import { KB_ARTICLES, NETWORK_NODES } from "../../data/itsmData.js";
@@ -57,27 +58,37 @@ function CommandMenuModal({ open, onClose }) {
     );
   }, [query]);
 
-  if (!open) return null;
-
   function handleSelectPath(path) {
     handleClose();
     navigate(path);
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/40 backdrop-blur-xs p-4">
-      <button
-        type="button"
-        className="absolute inset-0 cursor-default"
-        onClick={handleClose}
-        aria-label="Đóng thanh tìm kiếm"
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Tìm kiếm nhanh toàn cục"
-        className="relative bg-white rounded-2xl border border-brand-bone w-full max-w-xl shadow-2xl overflow-hidden z-10"
-      >
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.16 }}
+          className="fixed inset-0 z-50 flex items-start justify-center pt-20 bg-black/40 backdrop-blur-xs p-4"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default"
+            onClick={handleClose}
+            aria-label="Đóng thanh tìm kiếm"
+          />
+          <motion.div
+            initial={{ opacity: 0, y: -14, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.96 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Tìm kiếm nhanh toàn cục"
+            className="relative bg-white rounded-2xl border border-brand-bone w-full max-w-xl shadow-2xl overflow-hidden z-10"
+          >
         <div className="p-3.5 border-b border-brand-bone flex items-center gap-3">
           <Search className="w-4 h-4 text-brand-ash ml-1.5 shrink-0" />
           <input
@@ -187,8 +198,10 @@ function CommandMenuModal({ open, onClose }) {
             </div>
           ) : null}
         </div>
-      </div>
-    </div>
+          </motion.div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 }
 

@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import {
   AppWindow,
@@ -17,7 +18,6 @@ import SoftwareFormModal from "../../components/software/SoftwareFormModal.jsx";
 import AllocateLicenseModal from "../../components/software/AllocateLicenseModal.jsx";
 import AllocatedUsersDrawer from "../../components/software/AllocatedUsersDrawer.jsx";
 import useAuth from "../../hooks/useAuth.js";
-import { REALTIME_DATA_EVENT } from "../../hooks/useRealtimeUpdates.js";
 import {
   deleteSoftwareLicense,
   getFinOpsSummary,
@@ -48,19 +48,15 @@ const STATUSES = [
 ];
 
 function SoftwareLicensePage() {
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const role = user?.role || "admin";
-
-  const [licenses, setLicenses] = useState([]);
-  const [finOps, setFinOps] = useState({});
-  const [isLoading, setIsLoading] = useState(true);
 
   // Filters
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
 
   // Modals state
   const [formLicense, setFormLicense] = useState(null); // null = closed, {} = create, obj = edit
@@ -69,15 +65,13 @@ function SoftwareLicensePage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const refreshData = useCallback(() => {
-    setReloadKey((prev) => prev + 1);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-
-    Promise.all([
+  const licensesQuery = useQuery({
+    queryKey: [
+      "software",
+      "list",
+      { search, category: categoryFilter, type: typeFilter, status: statusFilter },
+    ],
+    queryFn: ({ signal }) =>
       getSoftwareLicenses(
         {
           search: search.trim() || undefined,
@@ -85,42 +79,31 @@ function SoftwareLicensePage() {
           type: typeFilter || undefined,
           status: statusFilter || undefined,
         },
-        { signal: controller.signal }
+        { signal },
       ),
-      getFinOpsSummary({ signal: controller.signal }),
-    ])
-      .then(([licensesRes, finOpsRes]) => {
-        if (!cancelled) {
-          setLicenses(licensesRes.licenses || []);
-          setFinOps(finOpsRes || {});
-        }
-      })
-      .catch((error) => {
-        if (!cancelled && error.code !== "ERR_CANCELED") {
-          toast.error(error.message || "Không thể tải danh sách bản quyền phần mềm.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
+  });
 
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [search, categoryFilter, typeFilter, statusFilter, reloadKey]);
+  const finOpsQuery = useQuery({
+    queryKey: ["software", "finops"],
+    queryFn: ({ signal }) => getFinOpsSummary({ signal }),
+  });
 
-  // Realtime updates listener
   useEffect(() => {
-    function handleRealtime(event) {
-      const detail = event.detail;
-      if (!detail?.resource || detail.resource === "software" || detail.resource === "system") {
-        refreshData();
-      }
+    const error = licensesQuery.error || finOpsQuery.error;
+    if (error) {
+      toast.error(
+        error.message || "Không thể tải danh sách bản quyền phần mềm.",
+      );
     }
-    window.addEventListener(REALTIME_DATA_EVENT, handleRealtime);
-    return () => window.removeEventListener(REALTIME_DATA_EVENT, handleRealtime);
-  }, [refreshData]);
+  }, [licensesQuery.error, finOpsQuery.error]);
+
+  const licenses = licensesQuery.data?.licenses || [];
+  const finOps = finOpsQuery.data || {};
+  const isLoading = licensesQuery.isLoading || licensesQuery.isFetching;
+
+  const refreshData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["software"] });
+  }, [queryClient]);
 
   async function handleDeleteConfirm() {
     if (!deleteTarget) return;
