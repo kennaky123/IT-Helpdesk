@@ -153,29 +153,57 @@ function UsbDevicesTable({
 
                   {/* Employee Machine Info */}
                   <td className="py-3.5 px-4">
-                    <div className="space-y-1 text-xs">
-                      <div className="font-bold text-brand-onyx flex items-center gap-1.5">
-                        <Laptop className="w-3.5 h-3.5 text-brand-violet shrink-0" />
-                        <span>{host.hostname || "UNKNOWN-PC"}</span>
-                      </div>
-                      <div className="text-[11px] text-brand-slate">
-                        User OS:{" "}
-                        <span className="font-medium text-brand-ink">
-                          {host.osUsername || "N/A"}
-                        </span>
-                        {host.ipAddress && (
-                          <span className="font-mono text-[10px] text-brand-ash ml-1.5">
-                            ({host.ipAddress})
-                          </span>
-                        )}
-                      </div>
-                      {device.assignedUser && (
-                        <div className="text-[11px] text-emerald-700 font-medium flex items-center gap-1">
-                          <User className="w-3 h-3" />
-                          <span>Gán cho: {device.assignedUser.fullName}</span>
+                    {(() => {
+                      const owner = device.assignedUser || device.hostOwner;
+                      if (owner) {
+                        return (
+                          <div className="space-y-1 text-xs">
+                            <div className="font-bold text-brand-onyx flex items-center gap-1.5">
+                              <User className="w-3.5 h-3.5 text-brand-violet shrink-0" />
+                              <span>{owner.fullName}</span>
+                              {owner.department && (
+                                <span className="text-[10px] font-medium text-brand-ash">
+                                  • {owner.department}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-brand-slate flex items-center gap-1.5 flex-wrap">
+                              <Laptop className="w-3 h-3 text-brand-ash shrink-0" />
+                              <span className="font-medium text-brand-ink">
+                                {owner.assetTag
+                                  ? `${owner.assetTag} (${host.hostname || "PC"})`
+                                  : host.hostname || "UNKNOWN-PC"}
+                              </span>
+                              {host.ipAddress && (
+                                <span className="font-mono text-[10px] text-brand-ash">
+                                  ({host.ipAddress})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-1 text-xs">
+                          <div className="font-bold text-brand-onyx flex items-center gap-1.5">
+                            <Laptop className="w-3.5 h-3.5 text-brand-violet shrink-0" />
+                            <span>{host.hostname || "UNKNOWN-PC"}</span>
+                          </div>
+                          <div className="text-[11px] text-brand-slate">
+                            User OS:{" "}
+                            <span className="font-medium text-brand-ink">
+                              {host.osUsername || "N/A"}
+                            </span>
+                            {host.ipAddress && (
+                              <span className="font-mono text-[10px] text-brand-ash ml-1.5">
+                                ({host.ipAddress})
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      )}
-                    </div>
+                      );
+                    })()}
                   </td>
 
                   {/* Live Connection Status */}

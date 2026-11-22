@@ -1,9 +1,86 @@
 import os from "node:os";
 import { env } from "../config/env.js";
+import Asset from "../models/Asset.js";
 import UsbDevice from "../models/UsbDevice.js";
 import UsbEventLog from "../models/UsbEventLog.js";
 import User from "../models/User.js";
 import ApiError from "../utils/ApiError.js";
+
+function normalizeKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+async function buildHostOwnerResolver() {
+  const [activeAssets, activeUsers] = await Promise.all([
+    Asset.find({ status: "in_use", assignedTo: { $ne: null } })
+      .select("assetTag name serialNumber assignedTo")
+      .populate("assignedTo", "fullName email department role")
+      .lean(),
+    User.find({ status: "active" })
+      .select("fullName email department role")
+      .lean(),
+  ]);
+
+  const byHostnameKey = new Map();
+  const byEmailPrefix = new Map();
+
+  for (const asset of activeAssets) {
+    if (!asset.assignedTo) continue;
+    const ownerInfo = {
+      _id: asset.assignedTo._id,
+      fullName: asset.assignedTo.fullName,
+      email: asset.assignedTo.email,
+      department: asset.assignedTo.department || null,
+      role: asset.assignedTo.role,
+      assetTag: asset.assetTag,
+      assetName: asset.name,
+    };
+
+    for (const candidate of [asset.assetTag, asset.serialNumber, asset.name]) {
+      const key = normalizeKey(candidate);
+      if (key && !byHostnameKey.has(key)) {
+        byHostnameKey.set(key, ownerInfo);
+      }
+    }
+  }
+
+  for (const u of activeUsers) {
+    const emailKey = normalizeKey(u.email?.split("@")[0]);
+    if (emailKey && !byEmailPrefix.has(emailKey)) {
+      const asset = activeAssets.find(
+        (a) => String(a.assignedTo?._id) === String(u._id),
+      );
+      byEmailPrefix.set(emailKey, {
+        _id: u._id,
+        fullName: u.fullName,
+        email: u.email,
+        department: u.department || null,
+        role: u.role,
+        assetTag: asset?.assetTag || null,
+        assetName: asset?.name || null,
+      });
+    }
+  }
+
+  return function resolveHostOwner(hostname, osUsername) {
+    const hostKey = normalizeKey(hostname);
+    if (hostKey) {
+      if (byHostnameKey.has(hostKey)) return byHostnameKey.get(hostKey);
+      for (const [key, owner] of byHostnameKey.entries()) {
+        if (hostKey.includes(key) || key.includes(hostKey)) {
+          return owner;
+        }
+      }
+    }
+
+    const osKey = normalizeKey(osUsername);
+    if (osKey && byEmailPrefix.has(osKey)) {
+      return byEmailPrefix.get(osKey);
+    }
+
+    return null;
+  };
+}
 
 function escapeRegex(str) {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -207,7 +284,7 @@ export async function listUsbDashboardData(query = {}) {
     ];
   }
 
-  const [devices, events, allDevices, totalEvents] = await Promise.all([
+  const [devices, events, allDevices, totalEvents, resolveHostOwner] = await Promise.all([
     UsbDevice.find(deviceFilter)
       .populate("assignedUser", "fullName email department role")
       .populate("reviewedBy", "fullName email role")
@@ -219,7 +296,32 @@ export async function listUsbDashboardData(query = {}) {
       .lean(),
     UsbDevice.find({}).select("status isCurrentlyConnected lastHost").lean(),
     UsbEventLog.countDocuments({}),
+    buildHostOwnerResolver(),
   ]);
+
+  const deviceOwnerByDeviceId = new Map();
+  const enrichedDevices = devices.map((device) => {
+    const hostOwner =
+      device.assignedUser ||
+      resolveHostOwner(device.lastHost?.hostname, device.lastHost?.osUsername);
+    if (hostOwner) {
+      deviceOwnerByDeviceId.set(device.deviceId, hostOwner);
+    }
+    return {
+      ...device,
+      hostOwner: hostOwner || null,
+    };
+  });
+
+  const enrichedEvents = events.map((evt) => {
+    const hostOwner =
+      deviceOwnerByDeviceId.get(evt.deviceId) ||
+      resolveHostOwner(evt.hostname, evt.osUsername);
+    return {
+      ...evt,
+      hostOwner: hostOwner || null,
+    };
+  });
 
   let currentlyConnected = 0;
   let unverifiedCount = 0;
@@ -239,8 +341,8 @@ export async function listUsbDashboardData(query = {}) {
   }
 
   return {
-    devices,
-    events,
+    devices: enrichedDevices,
+    events: enrichedEvents,
     summary: {
       totalDevices: allDevices.length,
       currentlyConnected,

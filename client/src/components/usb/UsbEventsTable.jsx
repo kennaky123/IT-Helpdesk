@@ -5,6 +5,7 @@ import {
   HardDrive,
   Laptop,
   Usb,
+  User,
 } from "lucide-react";
 import { formatTicketDateTime } from "../../utils/ticketPermissions.js";
 
@@ -100,20 +101,47 @@ function UsbEventsTable({ events = [] }) {
 
                   {/* Host Info */}
                   <td className="py-3 px-4">
-                    <div className="text-xs">
-                      <div className="font-bold text-brand-onyx flex items-center gap-1.5">
-                        <Laptop className="w-3.5 h-3.5 text-brand-slate" />
-                        <span>{evt.hostname}</span>
-                      </div>
-                      <div className="text-[11px] text-brand-slate">
-                        User: <span className="font-medium text-brand-ink">{evt.osUsername || "N/A"}</span>
-                        {evt.ipAddress && (
-                          <span className="font-mono text-[10px] text-brand-ash ml-1.5">
-                            ({evt.ipAddress})
+                    {evt.hostOwner ? (
+                      <div className="text-xs">
+                        <div className="font-bold text-brand-onyx flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5 text-brand-violet shrink-0" />
+                          <span>{evt.hostOwner.fullName}</span>
+                          {evt.hostOwner.department && (
+                            <span className="text-[10px] font-medium text-brand-ash">
+                              • {evt.hostOwner.department}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-brand-slate flex items-center gap-1 flex-wrap mt-0.5">
+                          <Laptop className="w-3 h-3 text-brand-ash shrink-0" />
+                          <span className="font-medium text-brand-ink">
+                            {evt.hostOwner.assetTag
+                              ? `${evt.hostOwner.assetTag} (${evt.hostname})`
+                              : evt.hostname}
                           </span>
-                        )}
+                          {evt.ipAddress && (
+                            <span className="font-mono text-[10px] text-brand-ash">
+                              ({evt.ipAddress})
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="text-xs">
+                        <div className="font-bold text-brand-onyx flex items-center gap-1.5">
+                          <Laptop className="w-3.5 h-3.5 text-brand-slate" />
+                          <span>{evt.hostname}</span>
+                        </div>
+                        <div className="text-[11px] text-brand-slate">
+                          User: <span className="font-medium text-brand-ink">{evt.osUsername || "N/A"}</span>
+                          {evt.ipAddress && (
+                            <span className="font-mono text-[10px] text-brand-ash ml-1.5">
+                              ({evt.ipAddress})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </td>
 
                   {/* Security Status */}
