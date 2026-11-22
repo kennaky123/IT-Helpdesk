@@ -168,29 +168,36 @@ function AssetsTable({
                   <td className="py-3 px-4">
                     {asset.remoteTool && asset.remoteTool !== "none" ? (
                       <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={(e) => handleQuickLaunch(asset, e)}
-                          title={`Bấm để mở trực tiếp qua ${asset.remoteTool.toUpperCase()}`}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all shadow-2xs ${
-                            asset.remoteTool === "anydesk"
-                              ? "bg-red-50 text-red-700 hover:bg-red-100 border border-red-200"
-                              : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
-                          }`}
-                        >
-                          <span
-                            className={`w-2 h-2 rounded-full ${
+                        {role !== "user" ? (
+                          <button
+                            type="button"
+                            onClick={(e) => handleQuickLaunch(asset, e)}
+                            title={`Bấm để mở trực tiếp qua ${asset.remoteTool.toUpperCase()}`}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all shadow-2xs ${
                               asset.remoteTool === "anydesk"
-                                ? "bg-red-500"
-                                : "bg-blue-500"
+                                ? "bg-red-50 text-red-700 hover:bg-red-100 border border-red-200"
+                                : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
                             }`}
-                          />
-                          <span className="uppercase">{asset.remoteTool}:</span>
-                          <span>{asset.remoteId || "Chưa có ID"}</span>
-                          <ExternalLink className="w-3 h-3 ml-0.5 opacity-70" />
-                        </button>
+                          >
+                            <span
+                              className={`w-2 h-2 rounded-full ${
+                                asset.remoteTool === "anydesk"
+                                  ? "bg-red-500"
+                                  : "bg-blue-500"
+                              }`}
+                            />
+                            <span className="uppercase">{asset.remoteTool}:</span>
+                            <span>{asset.remoteId || "Chưa có ID"}</span>
+                            <ExternalLink className="w-3 h-3 ml-0.5 opacity-70" />
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-brand-mist text-brand-slate border border-brand-bone">
+                            <span className="uppercase">{asset.remoteTool}:</span>
+                            <span>{asset.remoteId || "Chưa có ID"}</span>
+                          </span>
+                        )}
                       </div>
-                    ) : (
+                    ) : role !== "user" ? (
                       <button
                         type="button"
                         onClick={() => onRemoteConnect?.(asset)}
@@ -198,6 +205,10 @@ function AssetsTable({
                       >
                         + Cài đặt Remote ID
                       </button>
+                    ) : (
+                      <span className="text-xs text-brand-ash italic">
+                        Chưa cài đặt
+                      </span>
                     )}
                   </td>
 
@@ -228,15 +239,17 @@ function AssetsTable({
                         </button>
                       )}
 
-                      {/* Menu More */}
-                      <button
-                        type="button"
-                        onClick={() => onRemoteConnect?.(asset)}
-                        title="Kết nối / Đổi mã Remote Desktop"
-                        className="p-1.5 rounded-lg text-brand-slate hover:text-brand-ink hover:bg-brand-mist transition-colors"
-                      >
-                        <Tv className="w-4 h-4 text-brand-violet" />
-                      </button>
+                      {/* Remote Desktop (Admin/Tech only) */}
+                      {role !== "user" && (
+                        <button
+                          type="button"
+                          onClick={() => onRemoteConnect?.(asset)}
+                          title="Kết nối / Đổi mã Remote Desktop"
+                          className="p-1.5 rounded-lg text-brand-slate hover:text-brand-ink hover:bg-brand-mist transition-colors"
+                        >
+                          <Tv className="w-4 h-4 text-brand-violet" />
+                        </button>
+                      )}
 
                       <button
                         type="button"

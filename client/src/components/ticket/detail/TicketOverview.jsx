@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Monitor, Sparkles } from "lucide-react";
 import { toast } from "react-toastify";
+import useAuth from "../../../hooks/useAuth.js";
 import { formatTicketDateTime } from "../../../utils/ticketPermissions.js";
 import { getAssets, launchRemoteDesktop } from "../../../services/assetService.js";
 import RemoteConnectModal from "../../assets/RemoteConnectModal.jsx";
@@ -15,8 +16,11 @@ function getInitials(name = "") {
 }
 
 function TicketMetadataCard({ ticket }) {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [isRemoteModalOpen, setIsRemoteModalOpen] = useState(false);
+  const canUseRemoteSupport =
+    user?.role === "admin" || user?.role === "technician";
   const creatorId = ticket.createdBy?._id;
 
   const { data: assetData, isLoading: isAssetLoading } = useQuery({
@@ -180,18 +184,20 @@ function TicketMetadataCard({ ticket }) {
               </div>
             </div>
 
-            <div className="mt-3 flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleRemoteClick}
-                className="flex-1 border-brand-violet/30 bg-purple-50/60 text-brand-violet hover:bg-purple-100"
-              >
-                <Monitor className="h-3.5 w-3.5" />
-                {realAsset.remoteId ? "Remote Support" : "Cấu hình Remote ID"}
-              </Button>
-            </div>
+            {canUseRemoteSupport ? (
+              <div className="mt-3 flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRemoteClick}
+                  className="flex-1 border-brand-violet/30 bg-purple-50/60 text-brand-violet hover:bg-purple-100"
+                >
+                  <Monitor className="h-3.5 w-3.5" />
+                  {realAsset.remoteId ? "Remote Support" : "Cấu hình Remote ID"}
+                </Button>
+              </div>
+            ) : null}
           </>
         ) : (
           <div className="rounded-xl border border-dashed border-brand-bone bg-brand-mist/40 p-3.5 text-xs text-brand-slate">
@@ -199,7 +205,7 @@ function TicketMetadataCard({ ticket }) {
           </div>
         )}
 
-        {isRemoteModalOpen && realAsset ? (
+        {canUseRemoteSupport && isRemoteModalOpen && realAsset ? (
           <RemoteConnectModal
             asset={realAsset}
             onClose={() => setIsRemoteModalOpen(false)}
