@@ -48,6 +48,13 @@ export const NAVIGATION_BY_ROLE = {
       end: true,
     },
     {
+      label: "Bản Quyền Của Tôi",
+      path: "/user/software",
+      icon: AppWindow,
+      iconColor: "text-brand-violet",
+      end: true,
+    },
+    {
       label: "Hồ Sơ Cá Nhân",
       path: "/profile",
       icon: UserRound,

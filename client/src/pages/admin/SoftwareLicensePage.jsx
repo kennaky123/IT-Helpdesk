@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import {
+  AlertTriangle,
   AppWindow,
-  Filter,
   Plus,
   RefreshCw,
   Search,
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { toast } from "react-toastify";
 import WorkspacePageHeader from "../../components/common/WorkspacePageHeader.jsx";
+import WorkspaceStatCard from "../../components/common/WorkspaceStatCard.jsx";
 import ConfirmActionModal from "../../components/common/ConfirmActionModal.jsx";
 import SoftwareFinOpsSummary from "../../components/software/SoftwareFinOpsSummary.jsx";
 import SoftwareTable from "../../components/software/SoftwareTable.jsx";
@@ -51,6 +52,8 @@ function SoftwareLicensePage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const role = user?.role || "admin";
+  const isUserRole = role === "user";
+  const isAdmin = role === "admin";
 
   // Filters
   const [search, setSearch] = useState("");
@@ -86,20 +89,23 @@ function SoftwareLicensePage() {
   const finOpsQuery = useQuery({
     queryKey: ["software", "finops"],
     queryFn: ({ signal }) => getFinOpsSummary({ signal }),
+    enabled: !isUserRole,
   });
 
   useEffect(() => {
-    const error = licensesQuery.error || finOpsQuery.error;
+    const error = licensesQuery.error || (!isUserRole ? finOpsQuery.error : null);
     if (error) {
       toast.error(
         error.message || "Không thể tải danh sách bản quyền phần mềm.",
       );
     }
-  }, [licensesQuery.error, finOpsQuery.error]);
+  }, [licensesQuery.error, finOpsQuery.error, isUserRole]);
 
   const licenses = licensesQuery.data?.licenses || [];
   const finOps = finOpsQuery.data || {};
   const isLoading = licensesQuery.isLoading || licensesQuery.isFetching;
+  const activeLicensesCount = licenses.filter((lic) => lic.status === "active").length;
+  const attentionLicensesCount = licenses.filter((lic) => lic.status !== "active").length;
 
   const refreshData = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["software"] });
@@ -133,9 +139,21 @@ function SoftwareLicensePage() {
     <div className="space-y-6">
       {/* Header */}
       <WorkspacePageHeader
-        eyebrow="Software Asset Management • FinOps Realtime"
-        title="Quản Lý Bản Quyền Phần Mềm & Chi Phí CNTT"
-        description="Theo dõi toàn diện giấy phép bản quyền SaaS, Desktop, Cloud, kiểm soát số lượng seats cấp phát và loại bỏ chi phí lãng phí."
+        eyebrow={
+          isUserRole
+            ? "Cổng Nhân Viên • Bản Quyền Phần Mềm"
+            : "Software Asset Management • FinOps Realtime"
+        }
+        title={
+          isUserRole
+            ? "Bản Quyền Phần Mềm Của Tôi"
+            : "Quản Lý Bản Quyền Phần Mềm & Chi Phí CNTT"
+        }
+        description={
+          isUserRole
+            ? "Danh sách các phần mềm bản quyền công ty đã cấp phát theo thiết bị bạn đang sử dụng. Bản quyền sẽ tự động cập nhật khi cấp hoặc thu hồi thiết bị."
+            : "Theo dõi toàn diện giấy phép bản quyền SaaS, Desktop, Cloud, kiểm soát số lượng seats cấp phát và loại bỏ chi phí lãng phí."
+        }
         actions={
           <div className="flex items-center gap-2">
             <button
@@ -146,20 +164,48 @@ function SoftwareLicensePage() {
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">Làm mới</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setFormLicense({})}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-brand-violet text-white text-xs font-semibold hover:bg-purple-700 active:scale-95 transition-all shadow-sm"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Thêm Bản Quyền Mới</span>
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setFormLicense({})}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-brand-violet text-white text-xs font-semibold hover:bg-purple-700 active:scale-95 transition-all shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Thêm Bản Quyền Mới</span>
+              </button>
+            )}
           </div>
         }
       />
 
-      {/* FinOps Analytics Cards */}
-      <SoftwareFinOpsSummary finOps={finOps} />
+      {/* Summary Cards */}
+      {isUserRole ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <WorkspaceStatCard
+            icon={AppWindow}
+            label="Bản quyền đang được cấp"
+            value={licenses.length}
+            description="Phần mềm đồng bộ theo thiết bị đang sử dụng"
+            tone="violet"
+          />
+          <WorkspaceStatCard
+            icon={ShieldCheck}
+            label="Đang hoạt động tốt"
+            value={activeLicensesCount}
+            description="Bản quyền hợp lệ và còn hiệu lực"
+            tone="emerald"
+          />
+          <WorkspaceStatCard
+            icon={AlertTriangle}
+            label="Sắp hết hạn / Cần gia hạn"
+            value={attentionLicensesCount}
+            description="Gói bản quyền cần IT kiểm tra hoặc gia hạn"
+            tone={attentionLicensesCount > 0 ? "amber" : "blue"}
+          />
+        </div>
+      ) : (
+        <SoftwareFinOpsSummary finOps={finOps} />
+      )}
 
       {/* Filter and Search Bar */}
       <div className="bg-white rounded-2xl border border-brand-bone p-4 shadow-xs space-y-3">
@@ -244,6 +290,7 @@ function SoftwareLicensePage() {
         <SoftwareTable
           licenses={licenses}
           role={role}
+          currentUserId={user?._id}
           onAllocate={(lic) => setAllocateTarget(lic)}
           onViewUsers={(lic) => setViewUsersTargetId(lic._id)}
           onEdit={(lic) => setFormLicense(lic)}

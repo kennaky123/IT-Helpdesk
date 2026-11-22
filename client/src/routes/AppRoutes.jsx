@@ -140,6 +140,10 @@ function AppRoutes() {
               path="user/assets"
               element={<StandardPageRoute><AssetManagementPage /></StandardPageRoute>}
             />
+            <Route
+              path="user/software"
+              element={<StandardPageRoute><SoftwareLicensePage /></StandardPageRoute>}
+            />
           </Route>
 
           <Route element={<RoleRoute allowedRoles={["technician"]} />}>

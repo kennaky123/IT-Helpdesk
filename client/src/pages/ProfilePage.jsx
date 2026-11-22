@@ -1,6 +1,13 @@
+import { useQuery } from "@tanstack/react-query";
 import {
+  AppWindow,
+  ArrowUpRight,
   Camera,
+  Check,
+  Copy,
+  ExternalLink,
   KeyRound,
+  Laptop,
   LoaderCircle,
   Mail,
   Phone,
@@ -9,9 +16,11 @@ import {
   UserRound,
 } from "lucide-react";
 import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import WorkspacePageHeader from "../components/common/WorkspacePageHeader.jsx";
 import useAuth from "../hooks/useAuth.js";
+import { getSoftwareLicenses } from "../services/softwareService.js";
 import {
   changePassword,
   getUserServiceErrorMessage,
@@ -19,6 +28,7 @@ import {
   updateUserProfile,
 } from "../services/userService.js";
 import { getAvatarUrl, getInitials } from "../utils/adminUserFormatters.js";
+import { formatTicketDateTime } from "../utils/ticketPermissions.js";
 
 const inputClass =
   "mt-1.5 w-full rounded-xl border border-brand-bone bg-brand-mist px-3.5 py-2.5 text-xs font-medium text-brand-ink outline-none transition focus:border-brand-violet focus:bg-white disabled:opacity-60";
@@ -48,6 +58,45 @@ function ProfilePage() {
     confirmNewPassword: "",
   });
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [copiedLicenseId, setCopiedLicenseId] = useState(null);
+
+  const softwareQuery = useQuery({
+    queryKey: ["software", "list", "profile", user?._id],
+    queryFn: ({ signal }) => getSoftwareLicenses({}, { signal }),
+    enabled: Boolean(user?._id),
+  });
+
+  const currentUserId = user?._id ? String(user._id) : "";
+  const allocatedLicenses = (softwareQuery.data?.licenses ?? [])
+    .map((lic) => {
+      const assignment = (lic.assignedUsers ?? []).find(
+        (entry) => String(entry.user?._id ?? entry.user ?? "") === currentUserId,
+      );
+      if (!assignment) return null;
+      return { ...lic, assignment };
+    })
+    .filter(Boolean);
+
+  const softwarePath =
+    user?.role === "user"
+      ? "/user/software"
+      : user?.role === "technician"
+        ? "/technician/software"
+        : "/admin/software";
+
+  async function handleCopyLicenseKey(license) {
+    if (!license.licenseKey) return;
+    try {
+      await navigator.clipboard.writeText(license.licenseKey);
+      setCopiedLicenseId(license._id);
+      toast.success(`Đã sao chép License Key của ${license.name}`);
+      setTimeout(() => {
+        setCopiedLicenseId((prev) => (prev === license._id ? null : prev));
+      }, 2000);
+    } catch {
+      toast.error("Không thể sao chép License Key.");
+    }
+  }
 
   function updateProfileField(name, value) {
     setProfileForm((current) => ({ ...current, [name]: value }));
@@ -387,6 +436,170 @@ function ProfilePage() {
               </button>
             </div>
           </form>
+
+          <section className="overflow-hidden rounded-xl border border-brand-bone bg-white shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-brand-bone px-5 py-4">
+              <div>
+                <h2 className="flex items-center gap-2 font-display text-sm font-bold text-brand-ink">
+                  <AppWindow className="size-4 text-brand-violet" />
+                  Bản quyền phần mềm được cấp
+                </h2>
+                <p className="mt-0.5 text-xs text-brand-slate">
+                  Danh sách phần mềm bản quyền công ty cấp phát theo thiết bị bạn đang sử dụng.
+                </p>
+              </div>
+              <Link
+                to={softwarePath}
+                className="inline-flex items-center gap-1 rounded-full border border-purple-200 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-brand-violet transition hover:bg-purple-100"
+              >
+                <span>Xem chi tiết</span>
+                <ArrowUpRight className="size-3.5" />
+              </Link>
+            </div>
+
+            <div className="p-5">
+              {softwareQuery.isLoading ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-xs text-brand-slate">
+                  <LoaderCircle className="size-4 animate-spin text-brand-violet" />
+                  <span>Đang tải danh sách bản quyền phần mềm...</span>
+                </div>
+              ) : softwareQuery.error ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
+                  Không thể tải danh sách bản quyền phần mềm.
+                </div>
+              ) : allocatedLicenses.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-brand-bone bg-brand-mist/40 px-4 py-8 text-center">
+                  <div className="mx-auto mb-2 flex size-9 items-center justify-center rounded-full bg-white text-brand-ash border border-brand-bone">
+                    <AppWindow className="size-4" />
+                  </div>
+                  <p className="text-xs font-semibold text-brand-ink">
+                    Chưa có bản quyền phần mềm nào được cấp
+                  </p>
+                  <p className="mt-1 text-[11px] text-brand-slate">
+                    Bản quyền phần mềm sẽ hiển thị tại đây khi bạn được bàn giao thiết bị công ty và cấp seat sử dụng.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {allocatedLicenses.map((lic) => {
+                    const statusBadge =
+                      lic.status === "expired"
+                        ? {
+                            label: "Đã hết hạn",
+                            cls: "border-red-200 bg-red-50 text-red-700",
+                          }
+                        : lic.status === "expiring_soon"
+                          ? {
+                              label: "Sắp hết hạn",
+                              cls: "border-amber-200 bg-amber-50 text-amber-700",
+                            }
+                          : {
+                              label: "Đang hoạt động",
+                              cls: "border-emerald-200 bg-emerald-50 text-emerald-700",
+                            };
+                    const devices = lic.assignment?.devices ?? [];
+                    const isCopied = copiedLicenseId === lic._id;
+
+                    return (
+                      <div
+                        key={lic._id}
+                        className="rounded-xl border border-brand-bone bg-brand-mist/25 p-4 transition-colors hover:border-purple-200 hover:bg-white"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-sm font-bold text-brand-onyx">
+                                {lic.name}
+                              </h3>
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusBadge.cls}`}
+                              >
+                                {statusBadge.label}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 text-xs text-brand-slate">
+                              <span className="font-medium text-brand-ink">
+                                {lic.vendor}
+                              </span>
+                              {" • "}
+                              <span>{lic.category}</span>
+                            </p>
+                          </div>
+
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {lic.licenseKey && (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyLicenseKey(lic)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-brand-bone bg-white px-2.5 py-1.5 text-[11px] font-semibold text-brand-slate transition hover:bg-brand-mist hover:text-brand-ink"
+                              >
+                                {isCopied ? (
+                                  <Check className="size-3.5 text-emerald-600" />
+                                ) : (
+                                  <Copy className="size-3.5" />
+                                )}
+                                <span>{isCopied ? "Đã chép" : "Chép Key"}</span>
+                              </button>
+                            )}
+                            {lic.portalUrl && (
+                              <a
+                                href={lic.portalUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-[11px] font-semibold text-brand-violet transition hover:bg-purple-100"
+                              >
+                                <ExternalLink className="size-3.5" />
+                                <span>Portal</span>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-brand-bone/60 pt-2.5">
+                          {devices.map((d) => (
+                            <div
+                              key={d.assetTag}
+                              title={`Đang dùng: ${d.assetTag} • ${d.name}`}
+                              className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50/80 px-2.5 py-1 text-[11px] font-mono font-semibold text-brand-violet"
+                            >
+                              <Laptop className="size-3.5 shrink-0" />
+                              <span className="truncate">
+                                Đang dùng: {d.assetTag} • {d.name}
+                              </span>
+                            </div>
+                          ))}
+                          {lic.licenseKey && (
+                            <span className="max-w-full truncate rounded-lg border border-brand-bone bg-white px-2 py-1 font-mono text-[11px] text-brand-slate">
+                              Key: {lic.licenseKey}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-brand-ash font-mono">
+                          <span>
+                            Cấp ngày: {formatTicketDateTime(lic.assignment?.assignedAt)}
+                          </span>
+                          <span>
+                            {lic.type === "perpetual"
+                              ? "Hiệu lực: Vĩnh viễn"
+                              : lic.expiryDate
+                                ? `Hết hạn: ${new Date(lic.expiryDate).toLocaleDateString("vi-VN")}`
+                                : "Không có ngày hạn"}
+                          </span>
+                        </div>
+
+                        {lic.assignment?.note && (
+                          <div className="mt-2 rounded-lg border border-brand-bone/80 bg-white px-2.5 py-1.5 text-[11px] text-brand-slate break-words">
+                            {lic.assignment.note}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       </div>
     </section>

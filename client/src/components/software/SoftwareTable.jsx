@@ -1,14 +1,19 @@
 import {
   AppWindow,
   Calendar,
+  Check,
+  Copy,
   ExternalLink,
-  Layers,
+  Laptop,
   Pencil,
   Trash2,
   UserPlus,
   Users,
 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "react-toastify";
 import { formatCurrencyVND } from "../../services/softwareService.js";
+import { formatTicketDateTime } from "../../utils/ticketPermissions.js";
 
 const STATUS_CONFIG = {
   active: {
@@ -56,11 +61,211 @@ const CYCLE_LABELS = {
 function SoftwareTable({
   licenses = [],
   role = "admin",
+  currentUserId,
   onAllocate,
   onViewUsers,
   onEdit,
   onDelete,
 }) {
+  const [copiedId, setCopiedId] = useState(null);
+  const isUserRole = role === "user";
+  const currentUserIdStr = currentUserId ? String(currentUserId) : "";
+
+  async function handleCopyKey(license) {
+    if (!license.licenseKey) return;
+    try {
+      await navigator.clipboard.writeText(license.licenseKey);
+      setCopiedId(license._id);
+      toast.success(`Đã sao chép License Key của ${license.name}`);
+      setTimeout(() => {
+        setCopiedId((prev) => (prev === license._id ? null : prev));
+      }, 2000);
+    } catch {
+      toast.error("Không thể sao chép License Key.");
+    }
+  }
+
+  if (isUserRole) {
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-brand-mist/60 text-[11px] font-bold text-brand-slate uppercase tracking-wider border-b border-brand-bone">
+            <tr>
+              <th className="py-3 px-4">Phần Mềm & Nhà Cung Cấp</th>
+              <th className="py-3 px-4">Loại & Chu Kỳ</th>
+              <th className="py-3 px-4">Thiết Bị Công Ty Được Cấp</th>
+              <th className="py-3 px-4">Thông Tin Cấp Phát</th>
+              <th className="py-3 px-4">Hạn Dùng & Trạng Thái</th>
+              <th className="py-3 px-4 text-right">Truy Cập / Key</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-brand-bone">
+            {licenses.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="py-12 text-center text-xs text-brand-slate">
+                  Bạn hiện chưa được cấp bản quyền phần mềm nào hoặc chưa được bàn giao thiết bị công ty.
+                </td>
+              </tr>
+            ) : (
+              licenses.map((license) => {
+                const statusCfg = STATUS_CONFIG[license.status] || STATUS_CONFIG.active;
+                const typeCfg = TYPE_CONFIG[license.type] || {
+                  label: license.type,
+                  badge: "bg-gray-50 text-gray-700 border-gray-200",
+                };
+                const userEntry =
+                  license.assignedUsers?.find(
+                    (entry) =>
+                      String(entry.user?._id ?? entry.user ?? "") === currentUserIdStr,
+                  ) || license.assignedUsers?.[0];
+                const devices = userEntry?.devices || [];
+                const isCopied = copiedId === license._id;
+
+                return (
+                  <tr
+                    key={license._id}
+                    className="hover:bg-brand-mist/30 transition-colors"
+                  >
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-purple-50 text-brand-violet flex items-center justify-center shrink-0 border border-purple-100">
+                          <AppWindow className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-bold text-xs text-brand-onyx truncate">
+                            {license.name}
+                          </div>
+                          <div className="text-[11px] text-brand-slate flex items-center gap-1.5 mt-0.5">
+                            <span className="font-medium text-brand-ink">
+                              {license.vendor}
+                            </span>
+                            <span>•</span>
+                            <span className="text-brand-ash">{license.category}</span>
+                          </div>
+                          {license.licenseKey && (
+                            <div className="text-[10px] font-mono text-brand-slate bg-brand-mist/70 px-1.5 py-0.5 rounded border border-brand-bone/50 mt-1 inline-block max-w-[220px] truncate">
+                              Key: {license.licenseKey}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <div className="space-y-1">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border ${typeCfg.badge}`}
+                        >
+                          {typeCfg.label}
+                        </span>
+                        <div className="text-[11px] text-brand-slate flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-brand-ash" />
+                          <span>
+                            {CYCLE_LABELS[license.billingCycle] || license.billingCycle}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      {devices.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5 max-w-[260px]">
+                          {devices.map((d) => (
+                            <div
+                              key={d.assetTag}
+                              title={`${d.assetTag} • ${d.name}`}
+                              className="inline-flex items-center gap-1.5 max-w-full rounded-lg border border-purple-200 bg-purple-50/80 px-2 py-1 text-[11px] font-mono font-semibold text-brand-violet"
+                            >
+                              <Laptop className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">
+                                {d.assetTag} • {d.name}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-brand-slate">
+                          Theo tài khoản nhân viên
+                        </span>
+                      )}
+                    </td>
+
+                    <td className="py-3.5 px-4 max-w-[240px]">
+                      <div className="text-[11px] font-mono text-brand-onyx">
+                        Cấp ngày: {formatTicketDateTime(userEntry?.assignedAt)}
+                      </div>
+                      {userEntry?.note && (
+                        <div className="text-[11px] text-brand-slate mt-1 break-words">
+                          {userEntry.note}
+                        </div>
+                      )}
+                    </td>
+
+                    <td className="py-3.5 px-4">
+                      <div className="space-y-1.5">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${statusCfg.badge}`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${statusCfg.dot}`} />
+                          {statusCfg.label}
+                        </span>
+                        <div className="text-[11px] text-brand-slate">
+                          {license.type === "perpetual" ? (
+                            <span className="text-teal-600 font-medium">Vĩnh viễn</span>
+                          ) : license.expiryDate ? (
+                            <span>
+                              Hết hạn:{" "}
+                              {new Date(license.expiryDate).toLocaleDateString("vi-VN")}
+                            </span>
+                          ) : (
+                            "Không có ngày hạn"
+                          )}
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {license.licenseKey && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopyKey(license)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-brand-bone bg-white text-brand-slate hover:text-brand-ink hover:bg-brand-mist text-xs font-semibold transition-colors"
+                          >
+                            {isCopied ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                            <span>{isCopied ? "Đã chép" : "Chép Key"}</span>
+                          </button>
+                        )}
+                        {license.portalUrl && (
+                          <a
+                            href={license.portalUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-purple-200 bg-purple-50 text-brand-violet hover:bg-purple-100 text-xs font-semibold transition-colors"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>Mở Portal</span>
+                          </a>
+                        )}
+                        {!license.licenseKey && !license.portalUrl && (
+                          <span className="text-xs text-brand-ash">—</span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">

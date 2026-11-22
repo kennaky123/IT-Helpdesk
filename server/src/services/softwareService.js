@@ -114,11 +114,27 @@ export async function listSoftwareLicenses(query = {}, user) {
 
   let enriched = licenses.map((lic) => enrichLicense(lic, now, activeMachineMap));
 
+  if (user?.role === "user") {
+    const userIdStr = String(user._id);
+    enriched = enriched
+      .map((lic) => {
+        const myAssignments = (lic.assignedUsers || []).filter(
+          (entry) => String(entry.user?._id ?? entry.user ?? "") === userIdStr,
+        );
+        if (myAssignments.length === 0) return null;
+        return {
+          ...lic,
+          assignedUsers: myAssignments,
+        };
+      })
+      .filter(Boolean);
+  }
+
   if (query.status) {
     enriched = enriched.filter((lic) => lic.status === query.status);
   }
 
-  const finOps = await getFinOpsSummary();
+  const finOps = user?.role === "user" ? null : await getFinOpsSummary();
 
   return {
     licenses: enriched,
