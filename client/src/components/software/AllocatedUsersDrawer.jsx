@@ -5,7 +5,6 @@ import { toast } from "react-toastify";
 import { getAssets } from "../../services/assetService.js";
 import { getSoftwareLicense, revokeLicense } from "../../services/softwareService.js";
 import { formatTicketDateTime } from "../../utils/ticketPermissions.js";
-import { Badge } from "../ui/badge.jsx";
 
 function AllocatedUsersDrawer({ licenseId, onClose, onRevoked }) {
   const queryClient = useQueryClient();
@@ -88,7 +87,12 @@ function AllocatedUsersDrawer({ licenseId, onClose, onRevoked }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs animate-in fade-in">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-xs animate-in fade-in"
+    >
       <div className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col border-l border-brand-bone animate-in slide-in-from-right duration-200">
         <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -149,67 +153,78 @@ function AllocatedUsersDrawer({ licenseId, onClose, onRevoked }) {
                 return (
                   <div
                     key={userId || entry._id}
-                    className="p-3.5 rounded-xl border border-brand-bone bg-white hover:border-purple-200 transition-all shadow-xs flex items-center justify-between gap-3"
+                    className="p-3.5 rounded-xl border border-brand-bone bg-white hover:border-purple-200 transition-all shadow-xs"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-full bg-brand-mist flex items-center justify-center text-brand-violet font-semibold text-xs shrink-0 border border-brand-bone">
-                        {user.avatarUrl ? (
-                          <img
-                            src={user.avatarUrl}
-                            alt={user.fullName}
-                            className="w-full h-full rounded-full object-cover"
-                          />
-                        ) : (
-                          user.fullName?.charAt(0).toUpperCase() || (
-                            <User className="w-4 h-4" />
-                          )
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold text-brand-onyx truncate">
-                          {user.fullName || "Nhân viên"}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-9 h-9 rounded-full bg-brand-mist flex items-center justify-center text-brand-violet font-semibold text-xs shrink-0 border border-brand-bone">
+                          {user.avatarUrl ? (
+                            <img
+                              src={user.avatarUrl}
+                              alt={user.fullName}
+                              className="w-full h-full rounded-full object-cover"
+                            />
+                          ) : (
+                            user.fullName?.charAt(0).toUpperCase() || (
+                              <User className="w-4 h-4" />
+                            )
+                          )}
                         </div>
-                        <div className="text-[11px] text-brand-slate truncate">
-                          {user.email || "Không có email"}{" "}
-                          {user.department ? `• ${user.department}` : ""}
-                        </div>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {entry.activeDevices.map((d) => (
-                            <Badge
-                              key={d.assetTag}
-                              variant="violet"
-                              className="text-[10px] font-mono"
-                            >
-                              <Laptop className="w-3 h-3" />
-                              Đang dùng: {d.assetTag} • {d.name}
-                            </Badge>
-                          ))}
-                        </div>
-                        <div className="text-[10px] text-brand-ash font-mono mt-1">
-                          Cấp ngày: {formatTicketDateTime(entry.assignedAt)}
-                        </div>
-                        {entry.note && (
-                          <div className="text-[11px] text-brand-slate bg-brand-mist/60 rounded px-2 py-0.5 mt-1 border border-brand-bone/60 inline-block max-w-full truncate">
-                            {entry.note}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-bold text-brand-onyx truncate">
+                            {user.fullName || "Nhân viên"}
                           </div>
-                        )}
+                          <div className="text-xs text-brand-slate truncate">
+                            {user.email || "Không có email"}
+                            {user.department ? ` • ${user.department}` : ""}
+                          </div>
+                        </div>
                       </div>
+
+                      <button
+                        type="button"
+                        disabled={isCurrentlyRevoking}
+                        onClick={() =>
+                          handleRevoke(userId, user.fullName || "Nhân viên")
+                        }
+                        title="Thu hồi seat bản quyền"
+                        className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 text-xs font-semibold transition-colors disabled:opacity-50"
+                      >
+                        <UserMinus className="w-3.5 h-3.5" />
+                        <span>
+                          {isCurrentlyRevoking ? "Đang thu hồi..." : "Thu hồi"}
+                        </span>
+                      </button>
                     </div>
 
-                    <button
-                      type="button"
-                      disabled={isCurrentlyRevoking}
-                      onClick={() =>
-                        handleRevoke(userId, user.fullName || "Nhân viên")
-                      }
-                      title="Thu hồi seat bản quyền"
-                      className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-[11px] font-medium transition-colors disabled:opacity-50"
-                    >
-                      <UserMinus className="w-3.5 h-3.5" />
-                      <span>
-                        {isCurrentlyRevoking ? "Đang thu hồi..." : "Thu hồi"}
-                      </span>
-                    </button>
+                    <div className="mt-2.5 pt-2.5 border-t border-brand-bone/60 space-y-1.5">
+                      {entry.activeDevices.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {entry.activeDevices.map((d) => (
+                            <div
+                              key={d.assetTag}
+                              title={`Đang dùng: ${d.assetTag} • ${d.name}`}
+                              className="inline-flex items-center gap-1.5 max-w-full rounded-lg border border-purple-200 bg-purple-50/80 px-2.5 py-1 text-[11px] font-mono font-semibold text-brand-violet"
+                            >
+                              <Laptop className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">
+                                Đang dùng: {d.assetTag} • {d.name}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="text-[11px] text-brand-ash font-mono">
+                        Cấp ngày: {formatTicketDateTime(entry.assignedAt)}
+                      </div>
+
+                      {entry.note && (
+                        <div className="text-[11px] text-brand-slate bg-brand-mist/70 rounded-lg px-2.5 py-1.5 border border-brand-bone/80 break-words">
+                          {entry.note}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}

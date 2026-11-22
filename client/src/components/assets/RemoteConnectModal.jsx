@@ -54,7 +54,12 @@ function RemoteConnectModal({ asset, onClose, onUpdated }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !isSaving) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in"
+    >
       <div className="w-full max-w-md bg-white rounded-2xl border border-brand-bone shadow-xl overflow-hidden">
         <div className="flex items-center justify-between p-5 border-b border-brand-bone bg-brand-mist/50">
           <div className="flex items-center gap-2.5">
