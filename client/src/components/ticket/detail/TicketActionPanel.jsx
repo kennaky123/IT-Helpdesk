@@ -219,9 +219,9 @@ function StatusUpdateForm({ ticket, transitions, onUpdateStatus }) {
       return;
     }
 
-    if (resolving && resolution.trim().length < 10) {
+    if (resolving && !resolution.trim()) {
       setError({
-        message: "Cách giải quyết phải có ít nhất 10 ký tự.",
+        message: "Vui lòng nhập cách giải quyết.",
         details: [],
       });
       return;
@@ -290,7 +290,6 @@ function StatusUpdateForm({ ticket, transitions, onUpdateStatus }) {
           id="status-resolution"
           aria-label="Cách giải quyết"
           value={resolution}
-          minLength={10}
           maxLength={5000}
           rows={3}
           disabled={submitting}
@@ -299,7 +298,7 @@ function StatusUpdateForm({ ticket, transitions, onUpdateStatus }) {
             setError(null);
           }}
           className={`${fieldClassName} resize-y font-normal`}
-          placeholder="Nhập chi tiết giải pháp khắc phục sự cố (tối thiểu 10 ký tự)..."
+          placeholder="Nhập chi tiết giải pháp khắc phục sự cố..."
         />
       ) : null}
 
@@ -342,9 +341,9 @@ function ResolutionForm({ ticket, onUpdateResolution }) {
   async function handleSubmit(event) {
     event.preventDefault();
 
-    if (resolution.trim().length < 10) {
+    if (!resolution.trim()) {
       setError({
-        message: "Cách giải quyết phải có ít nhất 10 ký tự.",
+        message: "Vui lòng nhập cách giải quyết.",
         details: [],
       });
       return;
@@ -373,7 +372,6 @@ function ResolutionForm({ ticket, onUpdateResolution }) {
       </h4>
       <textarea
         value={resolution}
-        minLength={10}
         maxLength={5000}
         rows={3}
         disabled={submitting}
@@ -388,7 +386,7 @@ function ResolutionForm({ ticket, onUpdateResolution }) {
       <InlineActionError error={error} />
       <button
         type="submit"
-        disabled={submitting || resolution.trim().length < 10}
+        disabled={submitting || !resolution.trim()}
         className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-brand-emerald bg-white px-3 py-2 text-xs font-semibold text-brand-emerald transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40"
       >
         {submitting ? (

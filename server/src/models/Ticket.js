@@ -199,7 +199,7 @@ const ticketSchema = new Schema(
       type: String,
       default: null,
       trim: true,
-      minlength: [10, "Nội dung giải quyết phải có ít nhất 10 ký tự."],
+      minlength: [1, "Nội dung giải quyết không được để trống."],
       maxlength: [5000, "Nội dung giải quyết không được vượt quá 5000 ký tự."],
       required: [
         function resolutionRequired() {

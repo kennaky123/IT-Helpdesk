@@ -278,11 +278,8 @@ export function validateStatusUpdate(request, _response, next) {
       errors.push("Ghi chú trạng thái phải có từ 1 đến 500 ký tự.");
     }
 
-    if (
-      resolution &&
-      (resolution.length < 10 || resolution.length > 5000)
-    ) {
-      errors.push("Nội dung giải quyết phải có từ 10 đến 5000 ký tự.");
+    if (resolution && resolution.length > 5000) {
+      errors.push("Nội dung giải quyết không được vượt quá 5000 ký tự.");
     }
 
     if (resolution && status !== "resolved") {
@@ -307,8 +304,8 @@ export function validateResolution(request, _response, next) {
       errors,
     );
 
-    if (!resolution || resolution.length < 10 || resolution.length > 5000) {
-      errors.push("Nội dung giải quyết phải có từ 10 đến 5000 ký tự.");
+    if (!resolution || resolution.length > 5000) {
+      errors.push("Nội dung giải quyết phải có từ 1 đến 5000 ký tự.");
     }
 
     request.body = { resolution };
